@@ -81,6 +81,16 @@ class Movies:
         if not Item['ProductionLocations']:
             Item['ProductionLocations'].append(None)
 
+        # Override OriginalTitle and sortTitle with pinyin from title (c00)
+        title_for_pinyin = Item['KodiName'] if Item['UpdateItem'] else Item['Name']
+        pinyin_title = utils.get_pinyin(title_for_pinyin)
+        if pinyin_title:
+            Item['OriginalTitle'] = pinyin_title
+            if Item['UpdateItem']:
+                Item['KodiSortName'] = pinyin_title
+            else:
+                Item['SortName'] = pinyin_title
+
         if Item['UpdateItem']:
             self.SQLs["video"].update_movie(Item['KodiItemId'], Item['KodiFileId'], Item['KodiName'], Item['Overview'], Item['ShortOverview'], Item['Tagline'], Item['KodiRatingId'], Item['Writers'], Item['KodiArtwork']['poster'], Item['KodiUniqueId'], Item['KodiSortName'], Item['KodiRunTimeTicks'], Item['OfficialRating'], Item['Genre'], Item['Directors'], Item['OriginalTitle'], Item['Studio'], Item['Trailer'], Item['KodiArtwork']['fanart'].get('fanart', None), Item['ProductionLocations'][0], Item['KodiPremiereDate'], None, Item['KodiFilename'], Item['KodiStackedFilename'], Item['KodiDateCreated'], Item['MediaSources'][0]['Name'], Item['KodiPathId'], Item['KodiPath'], Item['KodiFullPath'])
             self.SQLs["emby"].update_reference_movie(Item['Id'], Item['PresentationUniqueKey'], Item['LibraryId'])

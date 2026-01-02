@@ -457,6 +457,43 @@ def ServersConnect():
 
     xbmc.log("EMBY.hooks.monitor: THREAD: ---<[ ServersConnect ]", 0) # LOGDEBUG
 
+def apply_skin_patch():
+    """Apply skin patch files to supported skin addons during installation."""
+    xbmc.log("EMBY.hooks.monitor: Applying fuse2 patch", 1) # LOGINFO
+    
+    # Source patch file
+    SourcePath = "special://home/addons/plugin.service.emby-next-gen/fuse2/search_path.xml"
+    
+    # Destination path in skin addon
+    SkinAddonPath = "special://home/addons/skin.arctic.fuse.2/"
+    DestinationPath = f"{SkinAddonPath}shortcuts/generator/data/setup/search_path.xml"
+    
+    # Check if source file exists
+    if not xbmcvfs.exists(SourcePath):
+        xbmc.log("EMBY.hooks.monitor: fuse2 patch source file not found, skipping patch", 2) # LOGWARNING
+        return
+    
+    # Check if skin addon exists
+    if not xbmcvfs.exists(SkinAddonPath):
+        xbmc.log("EMBY.hooks.monitor: skin.arctic.fuse.2 addon not found, skipping fuse2 patch", 2) # LOGWARNING
+        return
+    
+    try:    
+        # Delete existing file if it exists (to allow overwriting)
+        if xbmcvfs.exists(DestinationPath):
+            utils.delFile(DestinationPath)
+            xbmc.log("EMBY.hooks.monitor: Deleted existing fuse2 patch file for overwrite", 0) # LOGDEBUG
+        
+        # Copy the patch file
+        utils.copyFile(SourcePath, DestinationPath)
+        
+        if xbmcvfs.exists(DestinationPath):
+            xbmc.log("EMBY.hooks.monitor: fuse2 patch applied successfully", 1) # LOGINFO
+        else:
+            xbmc.log("EMBY.hooks.monitor: fuse2 patch copy failed", 3) # LOGERROR
+    except Exception as Error:
+        xbmc.log(f"EMBY.hooks.monitor: Error applying fuse2 patch: {Error}", 3) # LOGERROR
+
 def setup():
     # copy default nodes
     utils.mkDir("special://profile/library/")
@@ -471,6 +508,9 @@ def setup():
 
         if not xbmcvfs.exists(Destination):
             utils.copyFile("special://home/addons/plugin.service.emby-next-gen/resources/icon-animated.gif", Destination)
+
+    # Apply skin patches (runs on every startup, including reinstalls)
+    apply_skin_patch()
 
     if utils.MinimumSetup == "OPENLIBRARY":
         utils.set_settings('MinimumSetup', utils.MinimumVersion)
