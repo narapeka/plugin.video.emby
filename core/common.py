@@ -261,17 +261,18 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
         Item['KodiFullPath'] = Item['KodiPath']
         return
 
+    if Container == 'iso' or KodiPathLower.endswith(".iso"):
+        NativeMode = True
+    elif KodiPathLower.startswith("dav://") or KodiPathLower.startswith("davs://"):
+        NativeMode = True
+
     if Item['KodiPath']:
         Item['KodiFilename'] = utils.get_Filename(Item['KodiPath'], NativeMode)
     else: # channels
         Item['KodiFilename'] = "unknown"
         NativeMode = False
 
-    if Container == 'iso' or KodiPathLower.endswith(".iso"):
-        NativeMode = True
-    elif KodiPathLower.startswith("dav://") or KodiPathLower.startswith("davs://"):
-        NativeMode = True
-    elif KodiPathLower.startswith("http://") or KodiPathLower.startswith("https://"):
+    if KodiPathLower.startswith("http://") or KodiPathLower.startswith("https://"):
         NativeMode = False
         Dynamic += "http/"
         isHttpByEmby = True
