@@ -183,46 +183,29 @@ def get_Bitrate_Codec(Item, StreamType, MediaSource):
     return Bitrate, Codec
 
 def convert_iso_path(path):
-    """
-    Convert ISO file paths based on user settings.
-    
-    Args:
-        path: The path to convert
-        
-    Returns:
-        The converted path or original path if no conversion needed
-    """
     if not utils.IsoPathConvertEnabled:
         return path
     
     if not path:
         return path
     
-    # Check if path contains .iso (case-insensitive)
     path_lower = path.lower()
     if '.iso' not in path_lower:
         return path
     
     converted_path = path
     
-    # Replace path prefix if configured
     if utils.IsoPathConvertPrefix and utils.IsoPathConvertReplaceTo:
         prefix = utils.IsoPathConvertPrefix
-        if converted_path.startswith(prefix):
-            converted_path = converted_path.replace(prefix, utils.IsoPathConvertReplaceTo, 1)
+        prefix_lower = prefix.lower()
+        if path_lower.startswith(prefix_lower):
+            prefix_len = len(prefix)
+            converted_path = utils.IsoPathConvertReplaceTo + converted_path[prefix_len:]
     
-    # Remove trailing characters after .iso if enabled
     if utils.IsoPathConvertRemoveTrailing:
-        # Find the position of .iso (case-insensitive)
-        iso_pos = -1
-        for i in range(len(converted_path) - 3):
-            if converted_path[i:i+4].lower() == '.iso':
-                iso_pos = i + 4
-                break
-        
-        if iso_pos > 0:
-            # Remove everything after .iso (query parameters, etc.)
-            converted_path = converted_path[:iso_pos]
+        iso_pos = converted_path.lower().find('.iso')
+        if iso_pos != -1:
+            converted_path = converted_path[:iso_pos + 4]
     
     return converted_path
 
