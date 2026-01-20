@@ -182,6 +182,50 @@ def get_Bitrate_Codec(Item, StreamType, MediaSource):
 
     return Bitrate, Codec
 
+def convert_iso_path(path):
+    """
+    Convert ISO file paths based on user settings.
+    
+    Args:
+        path: The path to convert
+        
+    Returns:
+        The converted path or original path if no conversion needed
+    """
+    if not utils.IsoPathConvertEnabled:
+        return path
+    
+    if not path:
+        return path
+    
+    # Check if path contains .iso (case-insensitive)
+    path_lower = path.lower()
+    if '.iso' not in path_lower:
+        return path
+    
+    converted_path = path
+    
+    # Replace path prefix if configured
+    if utils.IsoPathConvertPrefix and utils.IsoPathConvertReplaceTo:
+        prefix = utils.IsoPathConvertPrefix
+        if converted_path.startswith(prefix):
+            converted_path = converted_path.replace(prefix, utils.IsoPathConvertReplaceTo, 1)
+    
+    # Remove trailing characters after .iso if enabled
+    if utils.IsoPathConvertRemoveTrailing:
+        # Find the position of .iso (case-insensitive)
+        iso_pos = -1
+        for i in range(len(converted_path) - 3):
+            if converted_path[i:i+4].lower() == '.iso':
+                iso_pos = i + 4
+                break
+        
+        if iso_pos > 0:
+            # Remove everything after .iso (query parameters, etc.)
+            converted_path = converted_path[:iso_pos]
+    
+    return converted_path
+
 def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
     Item['KodiFullPath'] = ""
     isHttpByEmby = False
@@ -230,6 +274,9 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
 
         if not Item['KodiPath'].endswith(Item['Container']):
             Item['KodiPath'] += f".{Item['Container']}"
+
+    # Convert ISO paths if enabled
+    Item['KodiPath'] = convert_iso_path(Item['KodiPath'])
 
     if Item['KodiPath'].startswith('\\\\'):
         Item['KodiPath'] = Item['KodiPath'].replace('\\\\', "SMBINJECT", 1).replace('\\', "/") # only replace \\ on beginning with smb://

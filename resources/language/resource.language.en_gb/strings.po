@@ -3362,3 +3362,39 @@ msgstr ""
 msgctxt "#33800"
 msgid "Kodi Companion is a Emby server addon which keeps track of deleted content"
 msgstr ""
+
+msgctxt "#33801"
+msgid "Path Convert"
+msgstr ""
+
+msgctxt "#33802"
+msgid "Enable ISO Path Conversion"
+msgstr ""
+
+msgctxt "#33803"
+msgid "Path Prefix"
+msgstr ""
+
+msgctxt "#33804"
+msgid "Replace To"
+msgstr ""
+
+msgctxt "#33805"
+msgid "Remove Trailing Chars after .iso"
+msgstr ""
+
+msgctxt "#33806"
+msgid "Enable conversion of ISO file paths from Emby format to Kodi-compatible format"
+msgstr ""
+
+msgctxt "#33807"
+msgid "Path prefix to match and replace (e.g., /mnt/share1 or http://serveraddress:port/path1)"
+msgstr ""
+
+msgctxt "#33808"
+msgid "Replacement path prefix (e.g., /storage/folder1)"
+msgstr ""
+
+msgctxt "#33809"
+msgid "Remove trailing characters after .iso extension (e.g., query parameters like ?pickcode=1234)"
+msgstr ""

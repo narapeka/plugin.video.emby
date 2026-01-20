@@ -1068,6 +1068,10 @@ def InitSettings():
     load_settings_bool('followhttp')
     load_settings_bool('BusyDialogClose')
     load_settings_bool('ArtworkCacheIncremental')
+    load_settings_bool('IsoPathConvertEnabled')
+    load_settings('IsoPathConvertPrefix')
+    load_settings('IsoPathConvertReplaceTo')
+    load_settings_bool('IsoPathConvertRemoveTrailing')
 
     if ArtworkLimitations:
         globals()["ScreenResolution"] = (int(xbmc.getInfoLabel('System.ScreenWidth')), int(xbmc.getInfoLabel('System.ScreenHeight')))
