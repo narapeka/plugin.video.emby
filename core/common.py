@@ -1,6 +1,6 @@
 import os
 import base64
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 import xbmc
 from helper import utils, artworkcache
 EmbyTypeMappingShort = {"Movie": "m", "Episode": "e", "MusicVideo": "M", "Audio": "a", "Video": "v", "TvChannel": "t", "Trailer": "T"}
@@ -207,7 +207,7 @@ def convert_iso_path(path):
         if iso_pos != -1:
             converted_path = converted_path[:iso_pos + 4]
     
-    return converted_path
+    return unquote(converted_path)
 
 def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
     Item['KodiFullPath'] = ""
