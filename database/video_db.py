@@ -1650,7 +1650,10 @@ class VideoDatabase:
         FileNames = self.cursor.fetchall()
 
         for FileName in FileNames:
-            if QuotedNew:
+            # Skip encoding/decoding for ISO files (same as NativeMode in common.py)
+            if ".iso" in FileName[1].lower():
+                FileNameNew = FileName[1]
+            elif QuotedNew:
                 if QuotedOld:
                     FileNameNew = FileName[1]
                 else:
