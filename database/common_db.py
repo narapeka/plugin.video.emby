@@ -1,3 +1,4 @@
+import re
 import xbmcgui
 from helper import utils
 
@@ -78,19 +79,46 @@ class CommonDatabase:
                     self.cursor.execute("INSERT INTO art(media_id, media_type, type, url) VALUES (?, ?, ?, ?)", (KodiId, KodiMediaType, ArtworkFanArtId, ImageFanArtPath))
 
 def toggle_path(CurrentPath, NewPath):
+    # Helper function to strip connection-timeout and redirect-limit suffixes
+    def strip_suffixes(path):
+        # Remove |connection-timeout=X (where X is any number)
+        path = re.sub(r'\|connection-timeout=\d+', '', path)
+        # Remove |redirect-limit=1000
+        path = path.replace("|redirect-limit=1000", "")
+        return path
+
+    # Helper function to add suffixes based on mode and settings
+    def add_suffixes(path, is_http_mode):
+        if is_http_mode:
+            path += "|redirect-limit=1000"
+            # Add connection-timeout if followhttp is enabled (matches behavior in core/common.py)
+            if utils.followhttp:
+                path += f"|connection-timeout={utils.followhttptimeout}"
+        return path
+
     if NewPath == "http://127.0.0.1:57342/":
         if CurrentPath.startswith("/emby_addon_mode/"):
-            return f'{CurrentPath.replace("/emby_addon_mode/", "http://127.0.0.1:57342/")}|redirect-limit=1000'
+            # Strip suffixes, convert path, then add redirect-limit and optionally connection-timeout
+            CleanPath = strip_suffixes(CurrentPath.replace("/emby_addon_mode/", "http://127.0.0.1:57342/"))
+            return add_suffixes(CleanPath, True)
 
-        return CurrentPath.replace("dav://127.0.0.1:57342/", "http://127.0.0.1:57342/")
+        # Strip suffixes, convert path, then add redirect-limit and optionally connection-timeout
+        CleanPath = strip_suffixes(CurrentPath.replace("dav://127.0.0.1:57342/", "http://127.0.0.1:57342/"))
+        return add_suffixes(CleanPath, True)
 
     if NewPath == "/emby_addon_mode/":
         if CurrentPath.startswith("http://127.0.0.1:57342/"):
-            return CurrentPath.replace("http://127.0.0.1:57342/", "/emby_addon_mode/").replace("|redirect-limit=1000", "")
+            # Strip suffixes and convert path
+            return strip_suffixes(CurrentPath.replace("http://127.0.0.1:57342/", "/emby_addon_mode/"))
 
-        return CurrentPath.replace("dav://127.0.0.1:57342/", "/emby_addon_mode/").replace("|redirect-limit=1000", "")
+        # Strip suffixes and convert path
+        return strip_suffixes(CurrentPath.replace("dav://127.0.0.1:57342/", "/emby_addon_mode/"))
     # if NewPath == "dav://127.0.0.1:57342/":
     if CurrentPath.startswith("/emby_addon_mode/"):
-        return f'{CurrentPath.replace("/emby_addon_mode/", "dav://127.0.0.1:57342/")}|redirect-limit=1000'
+        # Strip suffixes, convert path, then add redirect-limit (WebDAV doesn't use connection-timeout)
+        CleanPath = strip_suffixes(CurrentPath.replace("/emby_addon_mode/", "dav://127.0.0.1:57342/"))
+        return f'{CleanPath}|redirect-limit=1000'
 
-    return CurrentPath.replace("http://127.0.0.1:57342/", "dav://127.0.0.1:57342/")
+    # Strip suffixes and convert path (WebDAV doesn't use connection-timeout)
+    CleanPath = strip_suffixes(CurrentPath.replace("http://127.0.0.1:57342/", "dav://127.0.0.1:57342/"))
+    return f'{CleanPath}|redirect-limit=1000'
