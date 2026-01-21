@@ -291,9 +291,7 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
         Item['KodiFullPath'] = Item['KodiPath']
         return
 
-    if Container == 'iso' or KodiPathLower.endswith(".iso"):
-        NativeMode = True
-    elif KodiPathLower.startswith("dav://") or KodiPathLower.startswith("davs://"):
+    if Container == 'iso' or ".iso" in KodiPathLower:
         NativeMode = True
 
     if Item['KodiPath']:
@@ -302,7 +300,7 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
         Item['KodiFilename'] = "unknown"
         NativeMode = False
 
-    if Container == 'iso' or KodiPathLower.endswith(".iso"):
+    if Container == 'iso' or ".iso" in KodiPathLower:
         NativeMode = True
     elif KodiPathLower.startswith("dav://") or KodiPathLower.startswith("davs://"):
         NativeMode = True
