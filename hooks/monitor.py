@@ -157,7 +157,7 @@ def syncEmby():
 
     with syncEmbyLock:
         for EmbyServer in list(utils.EmbyServers.values()):
-            EmbyServer.library.RunJobs()
+            EmbyServer.library.RunJobs(True)
 
         xbmc.log("EMBY.hooks.monitor: THREAD: ---<[ syncEmby ]", 0) # LOGDEBUG
 

@@ -420,7 +420,7 @@ class WebSocket:
         self.close_EmbyServerBusy()
 
         if self.Running:
-            utils.start_thread(self.EmbyServer.library.RunJobs, ())
+            utils.start_thread(self.EmbyServer.library.RunJobs, (True,))
 
             if self.EPGRefresh:
                 self.EmbyServer.library.SyncLiveTVEPG()
@@ -468,4 +468,4 @@ class WebSocket:
         if self.EmbyServerSyncCheckRunning:
             xbmc.log(f"EMBY.hooks.websocket: Emby server {self.EmbyServer.ServerData['ServerId']}: Sync in progress, delay updates", 1) # LOGINFO
         else:
-            self.EmbyServer.library.RunJobs()
+            self.EmbyServer.library.RunJobs(True)
