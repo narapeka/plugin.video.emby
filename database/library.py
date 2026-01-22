@@ -302,7 +302,7 @@ class Library:
                 if UpdateData[1]:
                     self.userdata(UpdateData[1], True, False)
 
-            self.RunJobs()
+            self.RunJobs(True)
 
         self.set_syncdate(NewSyncData)
         self.SyncLiveTVEPG()
