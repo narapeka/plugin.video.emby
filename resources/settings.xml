@@ -117,6 +117,11 @@
                     <default>false</default>
                     <control type="toggle"/>
                 </setting>
+                <setting label="33810" id="SyncPlaylists" type="boolean" help="33811">
+                    <level>2</level>
+                    <default>false</default>
+                    <control type="toggle"/>
+                </setting>
                 <setting id="BoxSetsToTags" label="33560" type="boolean" help="33561">
                     <level>2</level>
                     <default>false</default>
@@ -226,97 +231,92 @@
                 </setting>
                 <setting label="33768" id="PauseRefreshChapterImages" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33769" id="PauseVacuumDatabase" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33770" id="PauseLocalThemeVideosUploadTask" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33771" id="PauseLocalThemeSongsUploadTask" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33772" id="PauseChapterApiUpdateIntroDB" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33773" id="PauseTvMazeUpdateTask" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33774" id="PauseServerSync" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33775" id="PauseScanInternalMetadataFolderTask" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33777" id="PauseRefreshInternetChannels" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33778" id="PauseRefreshGuide" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33779" id="PauseDownloadSubtitles" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33780" id="PauseLocalYTrailersDownloadTask" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33781" id="PauseTVLocalThemeSongDownloadTask" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33782" id="PauseLocalThemeVideosDownloadTask" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33783" id="PauseLocalThemeSongsDownloadTask" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33784" id="PauseMarkers" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33785" id="PauseSyncPrepare" type="boolean" help="33767">
                     <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33785" id="PauseEmbScriptxSchedTask" type="boolean" help="33787">
                     <level>3</level>
-                    <default>false</default>
-                    <control type="toggle"/>
-                </setting>
-                <setting label="33410" id="PauseOther" type="boolean" help="33767">
-                    <level>3</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
             </group>

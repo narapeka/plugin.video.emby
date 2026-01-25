@@ -3398,3 +3398,11 @@ msgstr ""
 msgctxt "#33809"
 msgid "Remove trailing characters after .iso extension (e.g., query parameters like ?pickcode=1234)"
 msgstr ""
+
+msgctxt "#33810"
+msgid "Sync playlists"
+msgstr ""
+
+msgctxt "#33811"
+msgid "Enable syncing Emby playlists to Kodi database. Disable if you don't use Emby playlists in Kodi."
+msgstr ""

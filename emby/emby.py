@@ -5,7 +5,7 @@ import xbmcvfs
 import xbmc
 from dialogs import serverconnect, usersconnect, loginconnect, loginmanual, servermanual
 from helper import utils, playerops, pluginmenu
-from database import library
+from database import library, sync_manager
 from hooks import favorites
 from . import views, api, http
 
@@ -23,6 +23,7 @@ class EmbyServer:
         self.API = api.API(self)
         self.Views = views.Views(self)
         self.library = library.Library(self)
+        self.sync_manager = None  # Initialized in start() after library
         self.Online = False
         self.Loaded = False
         self.MsgOffline = False
@@ -77,6 +78,11 @@ class EmbyServer:
         utils.SyncPause[f"server_starting_{self.ServerData['ServerId']}"] = True
         self.Online = True
         self.library.load_settings()
+
+        # Initialize SyncManager after library settings are loaded
+        if not self.sync_manager:
+            self.sync_manager = sync_manager.SyncManager(self)
+
         playerops.init_RemoteClient(self.ServerData['ServerId'])
         self.Views.update_views()
         self.Views.update_nodes()
@@ -93,6 +99,10 @@ class EmbyServer:
 
     def stop(self):
         xbmc.log(f"EMBY.emby.emby: --->[ STOP EMBYCLIENT: {self.ServerData['ServerId']} ]---", 1) # LOGINFO
+
+        # Shutdown SyncManager first to allow pending operations to complete
+        if self.sync_manager:
+            self.sync_manager.shutdown()
 
         if self.EmbySession and not self.ShutdownInProgress:
             xbmc.log("EMBY.emby.emby: Emby client stop", 0) # LOGDEBUG

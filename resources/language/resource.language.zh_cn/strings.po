@@ -3227,11 +3227,11 @@ msgstr "跳转到艺人"
 
 msgctxt "#33766"
 msgid "Pause sync"
-msgstr "暂停同步"
+msgstr "禁用实时同步"
 
 msgctxt "#33767"
 msgid "Pause sync when server is busy with tasks"
-msgstr "当服务器忙于任务时暂停同步"
+msgstr "当服务器有后台批量任务运行时，禁用实时同步。仅在任务完成后才批量刷新Kodi媒体库"
 
 msgctxt "#33768"
 msgid "Video preview thumbnail extraction"
@@ -3400,3 +3400,11 @@ msgstr "替换后的路径前缀（例如：/storage/folder1）"
 msgctxt "#33809"
 msgid "Remove trailing characters after .iso extension (e.g., query parameters like ?pickcode=1234)"
 msgstr "移除 .iso 扩展名后的尾随字符（例如：查询参数如 ?pickcode=1234）"
+
+msgctxt "#33810"
+msgid "Sync playlists"
+msgstr "同步播放列表"
+
+msgctxt "#33811"
+msgid "Enable syncing Emby playlists to Kodi database. Disable if you don't use Emby playlists in Kodi."
+msgstr "启用将 Emby 播放列表同步到 Kodi 数据库。如果您不在 Kodi 中使用 Emby 播放列表，可以禁用此选项。"

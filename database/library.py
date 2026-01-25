@@ -1666,6 +1666,9 @@ class Library:
                 self.set_recording_type(Item)
 
                 if Item['Type'] in SortItems:
+                    if Item['Type'] == "Playlist" and not utils.SyncPlaylists:
+                        continue  # Skip playlist sync when disabled
+
                     SortItems[Item['Type']].add(json.dumps(Item)) # Dict is not hashable (not possible adding "dict" to "set") -> convert to json string necessary
                 else: # e.g. PlaceHolder
                     xbmc.log(f"EMBY.database.library: Emby server {self.EmbyServer.ServerData['ServerId']}: Unsupported item type {Item['Type']}", 1) # LOGINFO

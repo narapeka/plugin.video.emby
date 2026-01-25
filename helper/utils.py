@@ -60,6 +60,7 @@ EmbyServerVersionResync = "4.9.0.25"
 refreshskin = False
 device_name = "Kodi"
 xspplaylists = False
+SyncPlaylists = False
 animateicon = True
 TranscodeFormatVideo = ""
 TranscodeFormatAudio = ""
@@ -194,7 +195,6 @@ PauseLocalThemeVideosDownloadTask = False
 PauseLocalThemeSongsDownloadTask = False
 PauseMarkers = False
 PauseSyncPrepare = False
-PauseOther = False
 PauseEmbScriptxSchedTask = False
 webservicemode = "webdav"
 busyMsg = True
@@ -231,6 +231,7 @@ PlaylistPathVideo = "special://profile/playlists/video/"
 SystemShutdown = False
 SyncPause = {}  # keys: playing, kodi_sleep, embyserverID, , kodi_rw, priority (thread with higher priorit needs access)
 WidgetRefresh = {"video": False, "music": False}
+PluginScanActive = {"video": False, "music": False}  # Track plugin-initiated scans to prevent cascade
 BoxSetsToTags = False
 MovieToSeries = True
 SyncFavorites = False
@@ -354,17 +355,21 @@ def refresh_widgets(isVideo):
 
         if isVideo and not IsScanningVideo and not WidgetRefresh['video']:
             globals()["WidgetRefresh"]['video'] = True
-            xbmc.log("EMBY.helper.utils: Refresh widgets video started", 1) # LOGINFO
+            globals()["PluginScanActive"]['video'] = True  # Mark as plugin-initiated scan (cascade prevention)
+            xbmc.log("EMBY.helper.utils: Refresh widgets video started (plugin-initiated)", 1) # LOGINFO
 
             if not SendJson('{"jsonrpc":"2.0","method":"VideoLibrary.Scan","params":{"showdialogs":false,"directory":"EMBY_widget_refresh_trigger"},"id":1}', True):
                 globals()["WidgetRefresh"]['video'] = False
+                globals()["PluginScanActive"]['video'] = False
 
         if not isVideo and not IsScanningMusic and not WidgetRefresh['music']:
             globals()["WidgetRefresh"]['music'] = True
-            xbmc.log("EMBY.helper.utils: Refresh widgets music started", 1) # LOGINFO
+            globals()["PluginScanActive"]['music'] = True  # Mark as plugin-initiated scan (cascade prevention)
+            xbmc.log("EMBY.helper.utils: Refresh widgets music started (plugin-initiated)", 1) # LOGINFO
 
             if not SendJson('{"jsonrpc":"2.0","method":"AudioLibrary.Scan","params":{"showdialogs":false,"directory":"EMBY_widget_refresh_trigger"},"id":1}', True):
                 globals()["WidgetRefresh"]['music'] = False
+                globals()["PluginScanActive"]['music'] = False
 
 def get_scans():
     IsScanningMusic = False
@@ -958,12 +963,12 @@ def InitSettings():
     load_settings_bool('PauseMarkers')
     load_settings_bool('PauseSyncPrepare')
     load_settings_bool('PauseEmbScriptxSchedTask')
-    load_settings_bool('PauseOther')
     load_settings_bool('refreshskin')
     load_settings_bool('animateicon')
     load_settings_bool('enablehttp2')
     load_settings_bool('menuOptions')
     load_settings_bool('xspplaylists')
+    load_settings_bool('SyncPlaylists')
     load_settings_bool('newContent')
     load_settings_bool('restartMsg')
     load_settings_bool('connectMsg')

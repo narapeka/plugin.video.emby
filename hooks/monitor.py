@@ -120,13 +120,32 @@ class monitor(xbmc.Monitor):
 
     def onScanFinished(self, library):
         xbmc.log(f"EMBY.hooks.monitor: --<[ kodi scan / {library} ]", 1) # LOGINFO
+
+        # Check if this was a plugin-initiated scan (widget refresh cascade prevention)
+        if utils.PluginScanActive.get(library, False):
+            utils.PluginScanActive[library] = False
+            xbmc.log(f"EMBY.hooks.monitor: Plugin scan finished ({library}), skipping sync", 1)  # LOGINFO
+            utils.WidgetRefresh[library] = False
+
+            if not utils.WidgetRefresh['music'] and not utils.WidgetRefresh['video']:
+                utils.SyncPause['kodi_rw'] = False
+            return
+
         utils.WidgetRefresh[library] = False
 
         if not utils.WidgetRefresh['music'] and not utils.WidgetRefresh['video']:
             utils.SyncPause['kodi_rw'] = False
 
             if not utils.RemoteMode and not syncEmbyLock.locked():
-                utils.start_thread(syncEmby, ())
+                # Use SyncManager if available
+                use_sync_manager = False
+                for EmbyServer in list(utils.EmbyServers.values()):
+                    if EmbyServer.sync_manager:
+                        EmbyServer.sync_manager.on_kodi_scan_finished(library)
+                        use_sync_manager = True
+
+                if not use_sync_manager:
+                    utils.start_thread(syncEmby, ())
 
     def onCleanStarted(self, library):
         xbmc.log(f"EMBY.hooks.monitor: -->[ kodi clean / {library} ]", 1) # LOGINFO
@@ -136,13 +155,32 @@ class monitor(xbmc.Monitor):
 
     def onCleanFinished(self, library):
         xbmc.log(f"EMBY.hooks.monitor: --<[ kodi clean / {library} ]", 1) # LOGINFO
+
+        # Check if this was a plugin-initiated clean (widget refresh cascade prevention)
+        if utils.PluginScanActive.get(library, False):
+            utils.PluginScanActive[library] = False
+            xbmc.log(f"EMBY.hooks.monitor: Plugin clean finished ({library}), skipping sync", 1)  # LOGINFO
+            utils.WidgetRefresh[library] = False
+
+            if not utils.WidgetRefresh['music'] and not utils.WidgetRefresh['video']:
+                utils.SyncPause['kodi_rw'] = False
+            return
+
         utils.WidgetRefresh[library] = False
 
         if not utils.WidgetRefresh['music'] and not utils.WidgetRefresh['video']:
             utils.SyncPause['kodi_rw'] = False
 
             if not utils.RemoteMode and not syncEmbyLock.locked():
-                utils.start_thread(syncEmby, ())
+                # Use SyncManager if available
+                use_sync_manager = False
+                for EmbyServer in list(utils.EmbyServers.values()):
+                    if EmbyServer.sync_manager:
+                        EmbyServer.sync_manager.on_kodi_clean_finished(library)
+                        use_sync_manager = True
+
+                if not use_sync_manager:
+                    utils.start_thread(syncEmby, ())
 
     def onSettingsChanged(self):
         xbmc.log("EMBY.hooks.monitor: Seetings changed", 1) # LOGINFO

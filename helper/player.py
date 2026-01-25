@@ -725,7 +725,11 @@ def sync_workers():
 
     if not utils.sleep(2):
         for EmbyServer in list(utils.EmbyServers.values()):
-            EmbyServer.library.RunJobs(True)
+            # Use SyncManager if available (incremental migration)
+            if EmbyServer.sync_manager:
+                EmbyServer.sync_manager.trigger_sync_check()
+            else:
+                EmbyServer.library.RunJobs(True)
 
     TasksRunning.remove("sync_workers")
     xbmc.log("EMBY.hooks.player: THREAD: ---<[ sync worker ]", 0) # LOGDEBUG

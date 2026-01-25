@@ -508,6 +508,41 @@ class EmbyDatabase:
     def delete_RemoveItem(self, EmbyId):
         self.cursor.execute("DELETE FROM RemoveItems WHERE EmbyId = ? ", (EmbyId,))
 
+    def count_RemoveItems(self):
+        """Count pending items in RemoveItems queue."""
+        self.cursor.execute("SELECT COUNT(*) FROM RemoveItems")
+        return self.cursor.fetchone()[0]
+
+    def count_UpdateItems(self):
+        """Count pending items in UpdateItems queue."""
+        self.cursor.execute("SELECT COUNT(*) FROM UpdateItems")
+        return self.cursor.fetchone()[0]
+
+    def count_UserdataItems(self):
+        """Count pending items in UserdataItems queue."""
+        self.cursor.execute("SELECT COUNT(*) FROM UserdataItems")
+        return self.cursor.fetchone()[0]
+
+    def count_LibraryAdd(self):
+        """Count pending items in LibraryAdd queue."""
+        self.cursor.execute("SELECT COUNT(*) FROM LibraryAdd")
+        return self.cursor.fetchone()[0]
+
+    def count_LibraryRemove(self):
+        """Count pending items in LibraryRemove queue."""
+        self.cursor.execute("SELECT COUNT(*) FROM LibraryRemove")
+        return self.cursor.fetchone()[0]
+
+    def get_queue_counts(self):
+        """Get counts for all sync queues."""
+        return {
+            "remove": self.count_RemoveItems(),
+            "update": self.count_UpdateItems(),
+            "userdata": self.count_UserdataItems(),
+            "library_add": self.count_LibraryAdd(),
+            "library_remove": self.count_LibraryRemove()
+        }
+
     # Subtitle
     def get_Subtitles(self, EmbyId):
         self.cursor.execute("SELECT * FROM Subtitles WHERE EmbyId = ?", (EmbyId,))
