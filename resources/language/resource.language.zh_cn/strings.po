@@ -3408,3 +3408,11 @@ msgstr "同步播放列表"
 msgctxt "#33811"
 msgid "Enable syncing Emby playlists to Kodi database. Disable if you don't use Emby playlists in Kodi."
 msgstr "启用将 Emby 播放列表同步到 Kodi 数据库。如果您不在 Kodi 中使用 Emby 播放列表，可以禁用此选项。"
+
+msgctxt "#33812"
+msgid "Disable widget auto-refresh"
+msgstr "禁用界面自动刷新"
+
+msgctxt "#33813"
+msgid "Skip automatic widget refresh to avoid UI interruptions. Manually exit and re-enter widgets to see updates."
+msgstr "跳过自动刷新界面小部件，避免界面干扰。手动退出小部件再次进入会看到更新。"

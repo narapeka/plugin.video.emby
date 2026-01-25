@@ -349,6 +349,10 @@ def get_pinyin(text):
         return text if text else ''
 
 def refresh_widgets(isVideo):
+    if disableAutoWidgetRefresh:
+        xbmc.log("EMBY.helper.utils: Widget refresh skipped (disabled by setting)", 1) # LOGINFO
+        return
+
     with WidgetsRefreshLock:
         xbmc.log("EMBY.helper.utils: Refresh widgets initialized", 1) # LOGINFO
         IsScanningVideo, IsScanningMusic = get_scans()
@@ -1077,6 +1081,7 @@ def InitSettings():
     load_settings('IsoPathConvertPrefix')
     load_settings('IsoPathConvertReplaceTo')
     load_settings_bool('IsoPathConvertRemoveTrailing')
+    load_settings_bool('disableAutoWidgetRefresh')
 
     if ArtworkLimitations:
         globals()["ScreenResolution"] = (int(xbmc.getInfoLabel('System.ScreenWidth')), int(xbmc.getInfoLabel('System.ScreenHeight')))

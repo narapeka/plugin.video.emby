@@ -3406,3 +3406,11 @@ msgstr ""
 msgctxt "#33811"
 msgid "Enable syncing Emby playlists to Kodi database. Disable if you don't use Emby playlists in Kodi."
 msgstr ""
+
+msgctxt "#33812"
+msgid "Disable widget auto-refresh"
+msgstr ""
+
+msgctxt "#33813"
+msgid "Skip automatic widget refresh to avoid UI interruptions. Manually exit and re-enter widgets to see updates."
+msgstr ""

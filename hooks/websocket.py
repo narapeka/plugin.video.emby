@@ -190,8 +190,6 @@ class WebSocket:
                         if not utils.PauseRefreshGuide:
                             continue
 
-                    # Any other task that passed the "scan" safeguard is always processed
-
                     if Task["State"] == "Running":
                         xbmc.log(f"EMBY.hooks.websocket: Emby server task running: {Task['Name']} / {KeyId} ]", 0) # LOGDEBUG
 
