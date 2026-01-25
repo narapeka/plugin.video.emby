@@ -401,19 +401,19 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
         if 'KodiPathParent' in Item:
             Item['KodiPathParent'] += "|redirect-limit=1000"
 
+    # Note: |connection-timeout is NOT stored in database paths as it breaks Kodi's JSON-RPC/widget cast display.
+    # The followhttp redirect still works because webservice checks utils.followhttp at runtime.
+    # |connection-timeout is added dynamically at playback time via webservice redirect response.
     if isHttpByEmby and utils.followhttp:
         Item['KodiPath'] = Item['KodiPath'].replace("/emby_addon_mode/", "http://127.0.0.1:57342/").replace("dav://127.0.0.1:57342/", "http://127.0.0.1:57342/")
-        if "|redirect-limit=1000" in Item['KodiFullPath']:
-            Item['KodiFullPath'] += f"|connection-timeout={utils.followhttptimeout}"
-        else:
-            Item['KodiFullPath'] += f"|redirect-limit=1000|connection-timeout={utils.followhttptimeout}"
-        Item['KodiPath'] += f"|connection-timeout={utils.followhttptimeout}"
+        if "|redirect-limit=1000" not in Item['KodiFullPath']:
+            Item['KodiFullPath'] += "|redirect-limit=1000"
+        if "|redirect-limit=1000" not in Item['KodiPath']:
+            Item['KodiPath'] += "|redirect-limit=1000"
 
         if 'KodiPathParent' in Item:
-            if "|redirect-limit=1000" in Item['KodiPathParent']:
-                Item['KodiPathParent'] += f"|connection-timeout={utils.followhttptimeout}"
-            else:
-                Item['KodiPathParent'] += f"|redirect-limit=1000|connection-timeout={utils.followhttptimeout}"
+            if "|redirect-limit=1000" not in Item['KodiPathParent']:
+                Item['KodiPathParent'] += "|redirect-limit=1000"
 
 # Detect Multipart videos
 def set_multipart(Item, EmbyServer):
