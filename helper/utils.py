@@ -276,7 +276,6 @@ SyncLocalOverPlugins = True
 AutoSelectHighestResolution = False
 NotifyEvents = False
 followhttp = False
-followhttptimeout = 5
 WebserviceWorkers = 10
 BusyDialogClose = False
 ArtworkCacheIncremental = False
@@ -942,7 +941,6 @@ def InitSettings():
     load_settings_int('FolderPaging')
     load_settings_int('PersonPaging')
     load_settings_int('MaxURILength')
-    load_settings_int('followhttptimeout')
     load_settings_int('WebserviceWorkers')
     load_settings_bool('ArtworkLimitations')
     load_settings_bool('sslverify')

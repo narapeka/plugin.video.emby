@@ -812,23 +812,6 @@
                     <default>true</default>
                     <control type="toggle"/>
                 </setting>
-                <setting id="followhttptimeout" type="integer" label="33714" help="">
-                    <level>0</level>
-                    <default>5</default>
-                    <constraints>
-                        <minimum>0</minimum>
-                        <step>1</step>
-                        <maximum>15</maximum>
-                    </constraints>
-                    <control type="slider" format="integer">
-                        <popup>false</popup>
-                    </control>
-                    <dependencies>
-                        <dependency type="enable">
-                            <condition operator="is" setting="followhttp">true</condition>
-                        </dependency>
-                    </dependencies>
-                </setting>
             </group>
             <group id="6" label="33495">
                 <setting label="33498" id="remotecontrol_force_clients" type="boolean" help="33499">

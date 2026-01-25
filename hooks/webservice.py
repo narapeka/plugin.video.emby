@@ -513,8 +513,7 @@ def send_redirect(client, MetaData, Data):
     utils.close_busyDialog()
 
     if MetaData['isHttp'] and utils.followhttp:
-        # Add |connection-timeout at playback time (not stored in DB to avoid breaking Kodi's JSON-RPC/widgets)
-        RedirectUrl = f"{MetaData['MediaSources'][MetaData['SelectionIndexMediaSource']][0]['Path']}|connection-timeout={utils.followhttptimeout}"
+        RedirectUrl = MetaData['MediaSources'][MetaData['SelectionIndexMediaSource']][0]['Path']
         SendData = f"HTTP/1.1 307 Temporary Redirect\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nLocation: {RedirectUrl}\r\nContent-Length: 0\r\n\r\n".encode()
         utils.HTTPResponseCaches[MetaData['EmbyId']] = SendData
     else:
