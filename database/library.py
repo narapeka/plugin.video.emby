@@ -325,8 +325,12 @@ class Library:
             xbmc.log(f"EMBY.database.library: --<[ Emby server {self.EmbyServer.ServerData['ServerId']}: worker userdata empty ]", 0) # LOGDEBUG
             return
 
-        ProgressBar = xbmcgui.DialogProgressBG()
-        ProgressBar.create(utils.Translate(33199), utils.Translate(33178))
+        if utils.disableIncrementSyncIndicator and IncrementalSync:
+            ProgressBar = None
+        else:
+            ProgressBar = xbmcgui.DialogProgressBG()
+            ProgressBar.create(utils.Translate(33199), utils.Translate(33178))
+
         RecordsPercent = len(UserDataItems) / 100
         UpdateItems, Others = self.ItemsSort(self.worker_userdata_generator, SQLs, UserDataItems, False, RecordsPercent, ProgressBar)
 
@@ -395,7 +399,8 @@ class Library:
 
     def worker_userdata_generator(self, SQLs, UserDataItems, RecordsPercent, ProgressBar):
         for index, UserDataItem in enumerate(UserDataItems, 1): # UserDataItem = EmbyId, EmbyType, EmbyPlaybackPositionTicks, EmbyPlayCount, EmbyIsFavorite, EmbyPlayed, EmbyLastPlayedDate
-            ProgressBar.update(int(index / RecordsPercent), utils.Translate(33178), str(UserDataItem[0]))
+            if ProgressBar:
+                ProgressBar.update(int(index / RecordsPercent), utils.Translate(33178), str(UserDataItem[0]))
             MetaData = SQLs["emby"].get_UserData_MetaData(UserDataItem[0], UserDataItem[1])
             MetaData.update({"Id": UserDataItem[0], 'PlaybackPositionTicks': UserDataItem[2], 'PlayCount': UserDataItem[3], 'IsFavorite': UserDataItem[4], 'LastPlayedDate': UserDataItem[6], 'Played': UserDataItem[5], 'PlayedPercentage': UserDataItem[7], 'UnplayedItemCount': UserDataItem[8]})
 
@@ -440,8 +445,12 @@ class Library:
                 if not self.open_Worker(WorkerName):
                     return False
 
-                ProgressBar = xbmcgui.DialogProgressBG()
-                ProgressBar.create(utils.Translate(33199), utils.Translate(33178))
+                if utils.disableIncrementSyncIndicator and IncrementalSync:
+                    ProgressBar = None
+                else:
+                    ProgressBar = xbmcgui.DialogProgressBG()
+                    ProgressBar.create(utils.Translate(33199), utils.Translate(33178))
+
                 RecordsPercent = UpdateItemsCount / 100
                 index = 0
                 UpdateItems, Others = self.ItemsSort(self.worker_update_generator, {}, UpdateItems, False, RecordsPercent, ProgressBar)
@@ -526,7 +535,8 @@ class Library:
                 else:
                     LibraryName = LibraryId
 
-                ProgressBar.update(int(Counter / RecordsPercent), utils.Translate(33734), f"{LibraryName} / {ContentTypeLabel}")
+                if ProgressBar:
+                    ProgressBar.update(int(Counter / RecordsPercent), utils.Translate(33734), f"{LibraryName} / {ContentTypeLabel}")
 
                 for Item in self.EmbyServer.API.get_Items_Ids(UpdateItemsIds, ContentType, False, False, "worker_update", LibraryId, {}, {"Object": self.pause_workers, "Params": ("Startsync_http", SQLs, "", None)}, False, True, True):
                     Counter += 1
@@ -565,8 +575,13 @@ class Library:
 
                 RefreshAudio = False
                 RefreshVideo = False
-                ProgressBar = xbmcgui.DialogProgressBG()
-                ProgressBar.create(utils.Translate(33199), utils.Translate(33261))
+
+                if utils.disableIncrementSyncIndicator and IncrementalSync:
+                    ProgressBar = None
+                else:
+                    ProgressBar = xbmcgui.DialogProgressBG()
+                    ProgressBar.create(utils.Translate(33199), utils.Translate(33261))
+
                 RecordsPercent = len(RemoveItems) / 100
                 SQLs = self.open_EmbyDBRW(WorkerName, False)
                 UpdateItems, Others = self.ItemsSort(self.worker_remove_generator, SQLs, RemoveItems, True, RecordsPercent, ProgressBar)
@@ -624,7 +639,8 @@ class Library:
             if not self.pause_workers("worker_remove_generator", SQLs, ProgressBar, None):
                 break
 
-            ProgressBar.update(int(index / RecordsPercent), utils.Translate(33261), str(RemoveItem[0]))
+            if ProgressBar:
+                ProgressBar.update(int(index / RecordsPercent), utils.Translate(33261), str(RemoveItem[0]))
             FoundRemoveItems = SQLs["emby"].get_remove_generator_items(RemoveItem[0], RemoveItem[1])
 
             for FoundRemoveItem in FoundRemoveItems:
@@ -866,7 +882,8 @@ class Library:
         else:
             ProgressMsg = "unknown"
 
-        ProgressBar.update(ProgressValue, f"{Item['Type']}: {ItemIndex}", ProgressMsg)
+        if ProgressBar:
+            ProgressBar.update(ProgressValue, f"{Item['Type']}: {ItemIndex}", ProgressMsg)
 
         if Ret and utils.newContent:
             utils.Dialog.notification(heading=f"{utils.Translate(33049)} {Item['Type']}", message=Item.get('Name', "unknown"), icon=utils.icon, time=utils.newContentTime, sound=False)
@@ -899,7 +916,8 @@ class Library:
         return True, Update
 
     def remove_Item(self, ProgressValue, ItemIndex, Item, SQLs, KodiDBs, ProgressBar, IncrementalSync, ClassObject):
-        ProgressBar.update(ProgressValue, f"{Item['Type']}: {ItemIndex}", str(Item['Id']))
+        if ProgressBar:
+            ProgressBar.update(ProgressValue, f"{Item['Type']}: {ItemIndex}", str(Item['Id']))
 
         with LockPause:
             ClassObject.remove(Item, IncrementalSync)

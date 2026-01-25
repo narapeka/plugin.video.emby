@@ -117,9 +117,9 @@
                     <default>false</default>
                     <control type="toggle"/>
                 </setting>
-                <setting label="33810" id="SyncPlaylists" type="boolean" help="33811">
+                <setting label="33683" id="startsyncenabled" type="boolean" help="33684">
                     <level>0</level>
-                    <default>false</default>
+                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33812" id="disableAutoWidgetRefresh" type="boolean" help="33813">
@@ -127,8 +127,18 @@
                     <default>true</default>
                     <control type="toggle"/>
                 </setting>
+                <setting label="33814" id="disableIncrementSyncIndicator" type="boolean" help="33815">
+                    <level>0</level>
+                    <default>true</default>
+                    <control type="toggle"/>
+                </setting>
                 <setting label="33663" id="imdbrating" type="boolean" help="33664">
                     <level>2</level>
+                    <default>false</default>
+                    <control type="toggle"/>
+                </setting>
+                <setting label="33810" id="SyncPlaylists" type="boolean" help="33811">
+                    <level>0</level>
                     <default>false</default>
                     <control type="toggle"/>
                 </setting>
@@ -165,11 +175,6 @@
                 <setting id="SyncLiveTvOnEvents" label="33567" type="boolean" help="33568">
                     <level>2</level>
                     <default>false</default>
-                    <control type="toggle"/>
-                </setting>
-                <setting label="33683" id="startsyncenabled" type="boolean" help="33684">
-                    <level>0</level>
-                    <default>true</default>
                     <control type="toggle"/>
                 </setting>
                 <setting label="33239" id="xspplaylists" type="boolean" help="33311">

@@ -1082,6 +1082,7 @@ def InitSettings():
     load_settings('IsoPathConvertReplaceTo')
     load_settings_bool('IsoPathConvertRemoveTrailing')
     load_settings_bool('disableAutoWidgetRefresh')
+    load_settings_bool('disableIncrementSyncIndicator')
 
     if ArtworkLimitations:
         globals()["ScreenResolution"] = (int(xbmc.getInfoLabel('System.ScreenWidth')), int(xbmc.getInfoLabel('System.ScreenHeight')))

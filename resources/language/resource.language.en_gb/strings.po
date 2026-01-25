@@ -3414,3 +3414,11 @@ msgstr ""
 msgctxt "#33813"
 msgid "Skip automatic widget refresh to avoid UI interruptions. Manually exit and re-enter widgets to see updates."
 msgstr ""
+
+msgctxt "#33814"
+msgid "Disable incremental sync indicator"
+msgstr ""
+
+msgctxt "#33815"
+msgid "Hide progress dialog for WebSocket-triggered incremental syncs."
+msgstr ""
