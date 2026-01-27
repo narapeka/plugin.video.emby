@@ -1,5 +1,5 @@
 from _thread import allocate_lock
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlparse, urlunparse, quote, unquote, urlencode
 import uuid
 import _socket
 import xbmc
@@ -496,6 +496,34 @@ def send_BlankWAV(client, Payload):
     except:
         set_DelayedContent(Payload, "blank")
 
+def safe_encode_url(url):
+    PATH_SAFE = "/:@-._~!$&'()*+,;="
+    try:
+        parsed = urlparse(url)
+
+        if not parsed.scheme and not parsed.netloc:
+            return quote(unquote(url), safe=PATH_SAFE + "?#")
+
+        path = quote(unquote(parsed.path), safe=PATH_SAFE) if parsed.path else ""
+
+        query = ""
+        if parsed.query:
+            qs_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+            query = urlencode(qs_pairs, doseq=True)
+
+        fragment = quote(unquote(parsed.fragment), safe="") if parsed.fragment else ""
+
+        return urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            path,
+            parsed.params,
+            query,
+            fragment
+        ))
+    except Exception:
+        return quote(url, safe=":/?#[]@!$&'()*+,;=%")
+
 def build_Path(MetaData, Data):
     if "?" in Data:
         Parameter = "&"
@@ -514,6 +542,7 @@ def send_redirect(client, MetaData, Data):
 
     if MetaData['isHttp'] and utils.followhttp:
         RedirectUrl = MetaData['MediaSources'][MetaData['SelectionIndexMediaSource']][0]['Path']
+        RedirectUrl = safe_encode_url(RedirectUrl)
         SendData = f"HTTP/1.1 307 Temporary Redirect\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nLocation: {RedirectUrl}\r\nContent-Length: 0\r\n\r\n".encode()
         utils.HTTPResponseCaches[MetaData['EmbyId']] = SendData
     else:
@@ -522,10 +551,11 @@ def send_redirect(client, MetaData, Data):
         if "main.m3u8" in Data:
             M3U8 = utils.EmbyServers[MetaData['ServerId']].API.get_m3u8(Path, MetaData['EmbyId'])
             HlsId = f"{MetaData['Payload']}{Data.replace('/', '')}embyhls.m3u8"
-            Path = f"http://127.0.0.1:57342{HlsId}"
+            Path = safe_encode_url(f"http://127.0.0.1:57342{HlsId}")
             utils.HTTPResponseCaches[MetaData['EmbyId']] = f'HTTP/1.1 200 OK\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nContent-Length: {len(M3U8)}\r\nContent-Type: application/vnd.apple.mpegurl\r\n\r\n'.encode() + M3U8
             SendData = f"HTTP/1.1 307 Temporary Redirect\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nLocation: {Path}\r\nContent-Length: 0\r\n\r\n".encode()
         else:
+            Path = safe_encode_url(Path)
             SendData = f"HTTP/1.1 307 Temporary Redirect\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nLocation: {Path}\r\nContent-Length: 0\r\n\r\n".encode()
             utils.HTTPResponseCaches[MetaData['EmbyId']] = SendData
 
