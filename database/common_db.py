@@ -1,4 +1,3 @@
-import re
 import xbmcgui
 from helper import utils
 
@@ -79,35 +78,19 @@ class CommonDatabase:
                     self.cursor.execute("INSERT INTO art(media_id, media_type, type, url) VALUES (?, ?, ?, ?)", (KodiId, KodiMediaType, ArtworkFanArtId, ImageFanArtPath))
 
 def toggle_path(CurrentPath, NewPath):
-    # Helper function to strip connection-timeout and redirect-limit suffixes
-    def strip_suffixes(path):
-        # Remove |connection-timeout=X (where X is any number)
-        path = re.sub(r'\|connection-timeout=\d+', '', path)
-        # Remove |redirect-limit=1000
-        path = path.replace("|redirect-limit=1000", "")
-        return path
-
-    # Note: |connection-timeout is NOT stored in database paths as it breaks Kodi's JSON-RPC/widget cast display.
-    # It is added dynamically at playback time via webservice redirect response.
-
     if NewPath == "http://127.0.0.1:57342/":
         if CurrentPath.startswith("/emby_addon_mode/"):
-            CleanPath = strip_suffixes(CurrentPath.replace("/emby_addon_mode/", "http://127.0.0.1:57342/"))
-            return f'{CleanPath}|redirect-limit=1000'
+            return f'{CurrentPath.replace("/emby_addon_mode/", "http://127.0.0.1:57342/")}|redirect-limit=1000'
 
-        CleanPath = strip_suffixes(CurrentPath.replace("dav://127.0.0.1:57342/", "http://127.0.0.1:57342/"))
-        return f'{CleanPath}|redirect-limit=1000'
+        return CurrentPath.replace("dav://127.0.0.1:57342/", "http://127.0.0.1:57342/")
 
     if NewPath == "/emby_addon_mode/":
         if CurrentPath.startswith("http://127.0.0.1:57342/"):
-            return strip_suffixes(CurrentPath.replace("http://127.0.0.1:57342/", "/emby_addon_mode/"))
+            return CurrentPath.replace("http://127.0.0.1:57342/", "/emby_addon_mode/").replace("|redirect-limit=1000", "")
 
-        return strip_suffixes(CurrentPath.replace("dav://127.0.0.1:57342/", "/emby_addon_mode/"))
-
-    # WebDAV mode (dav://127.0.0.1:57342/)
+        return CurrentPath.replace("dav://127.0.0.1:57342/", "/emby_addon_mode/").replace("|redirect-limit=1000", "")
+    # if NewPath == "dav://127.0.0.1:57342/":
     if CurrentPath.startswith("/emby_addon_mode/"):
-        CleanPath = strip_suffixes(CurrentPath.replace("/emby_addon_mode/", "dav://127.0.0.1:57342/"))
-        return f'{CleanPath}|redirect-limit=1000'
+        return f'{CurrentPath.replace("/emby_addon_mode/", "dav://127.0.0.1:57342/")}|redirect-limit=1000'
 
-    CleanPath = strip_suffixes(CurrentPath.replace("http://127.0.0.1:57342/", "dav://127.0.0.1:57342/"))
-    return f'{CleanPath}|redirect-limit=1000'
+    return CurrentPath.replace("http://127.0.0.1:57342/", "dav://127.0.0.1:57342/")

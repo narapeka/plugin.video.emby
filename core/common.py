@@ -210,6 +210,10 @@ def convert_iso_path(path):
     return unquote(converted_path)
 
 def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
+
+    # Variables initialization
+    # =============================================================
+
     Item['KodiFullPath'] = ""
     isHttpByEmby = False
 
@@ -225,7 +229,7 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
     if Item['Type'] in ('Photo', 'PhotoAlbum'):
         if 'Primary' in Item['ImageTags']:
             if 'Path' in Item:
-                Item['KodiFullPath'] = f"http://127.0.0.1:57342/picture/{ServerId}/p-{Item['Id']}-0-p-{Item['ImageTags']['Primary']}--{quote(utils.get_Filename(Item['Path'], ''))}|redirect-limit=1000"
+                Item['KodiFullPath'] = f"http://127.0.0.1:57342/picture/{ServerId}/p-{Item['Id']}-0-p-{Item['ImageTags']['Primary']}--{quote(utils.get_Filename(Item['Path']))}|redirect-limit=1000"
                 return
 
             Item['KodiFullPath'] = f"http://127.0.0.1:57342/picture/{ServerId}/p-{Item['Id']}-0-p-{Item['ImageTags']['Primary']}|redirect-limit=1000"
@@ -251,6 +255,9 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
 
     Item['KodiPath'] = Path
 
+    # Basic normalization
+    # =============================================================
+
     # Addonmode replace filextensions
     if Item['KodiPath'].endswith('.strm') and 'Container' in Item:
         Item['KodiPath'] = Item['KodiPath'].replace('.strm', "")
@@ -258,7 +265,7 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
         if not Item['KodiPath'].endswith(Item['Container']):
             Item['KodiPath'] += f".{Item['Container']}"
 
-    # Convert ISO paths if enabled
+    # Convert ISO paths if enabled（base on raw input path）
     Item['KodiPath'] = convert_iso_path(Item['KodiPath'])
 
     if Item['KodiPath'].startswith('\\\\'):
@@ -271,8 +278,15 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
     else:
         Item['KodiPath'] = Item['KodiPath'].replace("\\\\", "\\")
 
+    # always do a safe encode for incoming http url
+    if KodiPathLower.startswith("http://") or KodiPathLower.startswith("https://"):
+        Item['KodiPath'] = utils.safe_encode_url(Item['KodiPath'])
+
     KodiPathLower = Item['KodiPath'].lower()
     Container = Item.get('Container', "")
+
+    # Special container handling
+    # =============================================================
 
     if Container == 'dvd':
         Item['KodiPath'] += "/VIDEO_TS/"
@@ -291,28 +305,31 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
         Item['KodiFullPath'] = Item['KodiPath']
         return
 
-    if Container == 'iso' or ".iso" in KodiPathLower:
-        NativeMode = True
+    # Native mode determination
+    # =============================================================
 
     if Item['KodiPath']:
-        Item['KodiFilename'] = utils.get_Filename(Item['KodiPath'], NativeMode)
+        Item['KodiFilename'] = utils.get_Filename(Item['KodiPath'])
+        if Container == 'iso' or ".iso" in KodiPathLower:
+            NativeMode = True
+        elif KodiPathLower.startswith(('dav://', 'davs://', 'smb://', 'nfs://', 'ftp://', 'file://')):
+            NativeMode = True
+        elif KodiPathLower.startswith(('http://', 'https://')):
+            NativeMode = False
+            Dynamic += "http/"
+            isHttpByEmby = True
+            if 'Container' in Item:
+                Item['KodiFilename'] = f"unknown.{Item['Container']}"
+            else:
+                Item['KodiFilename'] = "unknown"
+        else:
+            NativeMode = False
     else: # channels
         Item['KodiFilename'] = "unknown"
         NativeMode = False
 
-    if Container == 'iso' or ".iso" in KodiPathLower:
-        NativeMode = True
-    elif KodiPathLower.startswith("dav://") or KodiPathLower.startswith("davs://"):
-        NativeMode = True
-    elif KodiPathLower.startswith("http://") or KodiPathLower.startswith("https://"):
-        NativeMode = False
-        Dynamic += "http/"
-        isHttpByEmby = True
-
-        if 'Container' in Item:
-            Item['KodiFilename'] = f"unknown.{Item['Container']}"
-        else:
-            Item['KodiFilename'] = "unknown"
+    # Path construction
+    # =============================================================
 
     if NativeMode:
         PathSeperator = utils.get_Path_Seperator(Item['KodiPath'])
@@ -394,26 +411,19 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
 
     Item['KodiFullPath'] = f"{Item['KodiPath']}{Item['KodiFilename']}"
 
-    if (Item['KodiPath'].startswith("http://127.0.0.1:57342/") or Item['KodiPath'].startswith("dav://127.0.0.1:57342/")) and Item['Type'] != "Audio":
-        Item['KodiFullPath'] += "|redirect-limit=1000"
-        Item['KodiPath'] += "|redirect-limit=1000"
+    # Redirect limit
+    # =============================================================
 
-        if 'KodiPathParent' in Item:
-            Item['KodiPathParent'] += "|redirect-limit=1000"
+    if Item['KodiPath'].startswith(("http://127.0.0.1:57342/", "dav://127.0.0.1:57342/")) and Item['Type'] != "Audio":
+        for key in ('KodiFullPath', 'KodiPath', 'KodiPathParent'):
+            if key in Item:
+                Item[key] += "|redirect-limit=1000"
 
-    # Note: |connection-timeout is NOT stored in database paths as it breaks Kodi's JSON-RPC/widget cast display.
-    # The followhttp redirect still works because webservice checks utils.followhttp at runtime.
-    # |connection-timeout is added dynamically at playback time via webservice redirect response.
     if isHttpByEmby and utils.followhttp:
         Item['KodiPath'] = Item['KodiPath'].replace("/emby_addon_mode/", "http://127.0.0.1:57342/").replace("dav://127.0.0.1:57342/", "http://127.0.0.1:57342/")
-        if "|redirect-limit=1000" not in Item['KodiFullPath']:
-            Item['KodiFullPath'] += "|redirect-limit=1000"
-        if "|redirect-limit=1000" not in Item['KodiPath']:
-            Item['KodiPath'] += "|redirect-limit=1000"
-
-        if 'KodiPathParent' in Item:
-            if "|redirect-limit=1000" not in Item['KodiPathParent']:
-                Item['KodiPathParent'] += "|redirect-limit=1000"
+        for key in ('KodiFullPath', 'KodiPath', 'KodiPathParent'):
+            if key in Item and "|redirect-limit=1000" not in Item[key]:
+                Item[key] += "|redirect-limit=1000"
 
 # Detect Multipart videos
 def set_multipart(Item, EmbyServer):

@@ -3,7 +3,7 @@ import os
 import json
 import sys
 import re
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 from datetime import datetime, timedelta, timezone
 from dateutil import tz, parser
 
@@ -802,15 +802,38 @@ def valid_Filename(Filename):
 
     return Filename
 
-def get_Filename(Path, NativeMode):
+def safe_encode_url(url):
+    PATH_SAFE = "/:@-._~!$&'()*+,;="
+    try:
+        parsed = urlparse(url)
+
+        if not parsed.scheme and not parsed.netloc:
+            return quote(unquote(url), safe=PATH_SAFE + "?#")
+
+        path = quote(unquote(parsed.path), safe=PATH_SAFE) if parsed.path else ""
+
+        query = ""
+        if parsed.query:
+            qs_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+            query = urlencode(qs_pairs, doseq=True)
+
+        fragment = quote(unquote(parsed.fragment), safe="") if parsed.fragment else ""
+
+        return urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            path,
+            parsed.params,
+            query,
+            fragment
+        ))
+    except Exception:
+        return quote(url, safe=":/?#[]@!$&'()*+,;=%")
+
+def get_Filename(Path):
     Separator = get_Path_Seperator(Path)
     Pos = Path.rfind(Separator)
-    Filename = Path[Pos + 1:]
-
-    if not NativeMode and webservicemode != "pathsubstitution":
-        Filename = quote(Filename)
-
-    return Filename
+    return Path[Pos + 1:]
 
 def SizeToText(FileSize):
     Index = 0
