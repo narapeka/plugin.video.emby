@@ -78,19 +78,18 @@ class CommonDatabase:
                     self.cursor.execute("INSERT INTO art(media_id, media_type, type, url) VALUES (?, ?, ?, ?)", (KodiId, KodiMediaType, ArtworkFanArtId, ImageFanArtPath))
 
 def toggle_path(CurrentPath, NewPath):
-    if NewPath == "http://127.0.0.1:57342/":
-        if CurrentPath.startswith("/emby_addon_mode/"):
-            return f'{CurrentPath.replace("/emby_addon_mode/", "http://127.0.0.1:57342/")}|redirect-limit=1000'
-
-        return CurrentPath.replace("dav://127.0.0.1:57342/", "http://127.0.0.1:57342/")
-
-    if NewPath == "/emby_addon_mode/":
-        if CurrentPath.startswith("http://127.0.0.1:57342/"):
-            return CurrentPath.replace("http://127.0.0.1:57342/", "/emby_addon_mode/").replace("|redirect-limit=1000", "")
-
-        return CurrentPath.replace("dav://127.0.0.1:57342/", "/emby_addon_mode/").replace("|redirect-limit=1000", "")
-    # if NewPath == "dav://127.0.0.1:57342/":
-    if CurrentPath.startswith("/emby_addon_mode/"):
-        return f'{CurrentPath.replace("/emby_addon_mode/", "dav://127.0.0.1:57342/")}|redirect-limit=1000'
-
-    return CurrentPath.replace("http://127.0.0.1:57342/", "dav://127.0.0.1:57342/")
+    # (current prefix, new prefix, append redirect suffix)
+    swaps = (
+        ("/emby_addon_mode/", "http://127.0.0.1:57342/", True),
+        ("dav://127.0.0.1:57342/", "http://127.0.0.1:57342/", True),
+        ("/emby_addon_mode/", "dav://127.0.0.1:57342/", True),
+        ("http://127.0.0.1:57342/", "dav://127.0.0.1:57342/", True),
+        ("http://127.0.0.1:57342/", "/emby_addon_mode/", False),
+        ("dav://127.0.0.1:57342/", "/emby_addon_mode/", False),
+    )
+    redirect = "|redirect-limit=1000"
+    for old_prefix, new_prefix, append_redirect in swaps:
+        if NewPath == new_prefix and CurrentPath.startswith(old_prefix):
+            path = CurrentPath.replace(old_prefix, new_prefix).replace(redirect, "")
+            return f"{path}{redirect}" if append_redirect else path
+    return CurrentPath

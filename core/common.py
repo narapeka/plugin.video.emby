@@ -278,12 +278,12 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
     else:
         Item['KodiPath'] = Item['KodiPath'].replace("\\\\", "\\")
 
+    KodiPathLower = Item['KodiPath'].lower()
+    Container = Item.get('Container', "")
+
     # always do a safe encode for incoming http url
     if KodiPathLower.startswith("http://") or KodiPathLower.startswith("https://"):
         Item['KodiPath'] = utils.safe_encode_url(Item['KodiPath'])
-
-    KodiPathLower = Item['KodiPath'].lower()
-    Container = Item.get('Container', "")
 
     # Special container handling
     # =============================================================
