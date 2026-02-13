@@ -492,6 +492,13 @@ def set_streams(Item):
 
         Item['MediaSources'] = MediaSourcesSort
 
+    # If a mediasource has Name "Default", lift it to first place (user's preferred default)
+    for i, MediaSource in enumerate(Item['MediaSources']):
+        if i > 0 and MediaSource.get('Name') == 'Default':
+            Item['MediaSources'].insert(0, Item['MediaSources'].pop(i))
+            xbmc.log(f"EMBY.core.common: Sort -> Name Default to first: {Item['Name']}", 0) # LOGDEBUG
+            break
+
     # Streams
     for MediaSource in Item['MediaSources']:
         MediaSource['Path'] = MediaSource.get('Path', "")
