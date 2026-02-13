@@ -3424,3 +3424,11 @@ msgstr "禁用增量同步进度提示"
 msgctxt "#33815"
 msgid "Hide progress dialog for WebSocket-triggered incremental syncs."
 msgstr "隐藏 WebSocket 触发的增量同步进度提示。"
+
+msgctxt "#33816"
+msgid "Auto-select same version for next episode"
+msgstr "下一集自动选择相同版本"
+
+msgctxt "#33817"
+msgid "When playing multi-version content (e.g. 1080p and 4K), remember your choice and auto-select the same version for the next episode in the same show/season. Disable to always show the version selection dialog."
+msgstr "播放多版本内容（如 1080p 与 4K）时记住选择，在同一剧集/季的下一集中自动选用相同版本。关闭则始终显示版本选择对话框。"

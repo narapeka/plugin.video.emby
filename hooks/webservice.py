@@ -541,6 +541,11 @@ def GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo):
     # workaround for low Kodi network timeout settings, for long running processes. "delayed_content" folder is actually a redirect to keep timeout below threshold
     if isDelayedContent:
         if not send_delayed_content(client, Payload):
+            with DelayedContentLock:
+                no_entry = Payload not in DelayedContent
+            if no_entry:
+                GetRequest(client, Payload, False, isPicture, isAudio, isVideo)
+                return
             for _ in range(utils.curltimeouts * 10 - 2):
                 if utils.sleep(0.1):
                     xbmc.log("EMBY.hooks.webservice: Delayed content interrupt, Kodi shutdown", 2) # LOGWARNING
@@ -721,6 +726,15 @@ def GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo):
         return
 
     # Select multiversion content
+    if MetaData['Type'] == 'episode':
+        embydb = dbio.DBOpenRO(MetaData['ServerId'], "http_Query")
+        videodb = dbio.DBOpenRO("video", "http_Query")
+        current_context = embydb.get_series_season_ids_for_episode(MetaData['EmbyId'], videodb)
+        dbio.DBCloseRO("video", "http_Query")
+        dbio.DBCloseRO(MetaData['ServerId'], "http_Query")
+    else:
+        current_context = None
+
     if metadata.MediaSourceContextMenu != -1: # Multiversion content played via contextmenu
         MetaData['SelectionIndexMediaSource'] = metadata.MediaSourceContextMenu
         metadata.MediaSourceContextMenu = -1
@@ -740,30 +754,45 @@ def GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo):
             if HighestResolution < width:
                 HighestResolution = width
                 MetaData['SelectionIndexMediaSource'] = MediaSourceIndex
-    else: # Manual select mediasource
-        if add_DelayedContent(MetaData, client):
-            return
+    else: # Manual select or auto-select same version for next episode
+        SelectionIndexMediaSource = None
+        if utils.AutoSelectSameVersionNextEpisode and current_context == utils.LastSelectedVersionContext:
+            names = [MediaSource[0].get('Name', '') for MediaSource in MetaData['MediaSources']]
+            idx = utils.resolve_mediasource_index_for_last_selection(names, len(MetaData['MediaSources']))
+            if idx >= 0:
+                SelectionIndexMediaSource = idx
 
-        Selection = []
-        paths = []
-        for MediaSource in MetaData['MediaSources']:
-            try:
-                size = float(MediaSource[0].get('Size') or 0)
-            except (TypeError, ValueError):
-                size = 0.0
-            name = MediaSource[0].get('Name', '')
-            path = MediaSource[0].get('Path', '')
-            paths.append(path)
-            Selection.append((name, size, path))
-        display_paths = utils.extract_file_paths(paths) or paths
-        Selection = [f"{name} - {utils.SizeToText(size)} - {display_paths[i]}" for i, (name, size, path) in enumerate(Selection)]
+        if SelectionIndexMediaSource is None:
+            if add_DelayedContent(MetaData, client):
+                return
 
-        MetaData['SelectionIndexMediaSource'] = utils.Dialog.select(utils.Translate(33453), Selection)
+            Selection = []
+            paths = []
+            for MediaSource in MetaData['MediaSources']:
+                try:
+                    size = float(MediaSource[0].get('Size') or 0)
+                except (TypeError, ValueError):
+                    size = 0.0
+                name = MediaSource[0].get('Name', '')
+                path = MediaSource[0].get('Path', '')
+                paths.append(path)
+                Selection.append((name, size, path))
+            display_paths = utils.extract_file_paths(paths) or paths
+            Selection = [f"{name} - {utils.SizeToText(size)} - {display_paths[i]}" for i, (name, size, path) in enumerate(Selection)]
 
-        if MetaData['SelectionIndexMediaSource'] == -1: # Cancel
-            set_DelayedContent(MetaData['Payload'], "blank")
-            playerops.Stop(False, 1)
-            return
+            SelectionIndexMediaSource = utils.Dialog.select(utils.Translate(33453), Selection)
+
+            if SelectionIndexMediaSource == -1: # Cancel
+                utils.clear_last_selected_version_preference()
+                set_DelayedContent(MetaData['Payload'], "blank")
+                playerops.Stop(False, 1)
+                return
+
+        MetaData['SelectionIndexMediaSource'] = SelectionIndexMediaSource
+
+    utils.LastSelectedMediaSourceName = (MetaData['MediaSources'][MetaData['SelectionIndexMediaSource']][0].get('Name', '') or "").strip()
+    utils.LastSelectedMediaSourceIndex = MetaData['SelectionIndexMediaSource']
+    utils.LastSelectedVersionContext = current_context
 
     # check if multiselection must be forced as native
     if MetaData['MediaSources'][MetaData['SelectionIndexMediaSource']][0]['Path'].lower().endswith(".iso"):
@@ -1017,6 +1046,9 @@ def send_delayed_content(client, Payload):
 
             if DC == "blank":
                 send_BlankWAV(client, Payload)
+                with DelayedContentLock:
+                    if Payload in DelayedContent:
+                        del globals()['DelayedContent'][Payload]
             else:
                 client.send(DC)
 

@@ -601,6 +601,25 @@ class EmbyDatabase:
 
         return None
 
+    def get_series_season_ids_for_episode(self, EmbyId, videodb=None):
+        """Return (SeriesId, SeasonId) for an episode EmbyId, or (None, None) if not found. videodb required for SeasonId."""
+        self.cursor.execute("SELECT KodiId, KodiParentId FROM Episode WHERE EmbyId = ?", (EmbyId,))
+        row = self.cursor.fetchone()
+        if not row:
+            return (None, None)
+        KodiEpisodeId, KodiShowId = row[0], row[1]
+        self.cursor.execute("SELECT EmbyId FROM Series WHERE KodiId = ?", (KodiShowId,))
+        series_row = self.cursor.fetchone()
+        SeriesId = series_row[0] if series_row else None
+        SeasonId = None
+        if videodb and KodiEpisodeId is not None:
+            KodiSeasonId = videodb.get_seasonid_by_episodeid(KodiEpisodeId)
+            if KodiSeasonId is not None:
+                self.cursor.execute("SELECT EmbyId FROM Season WHERE KodiId = ?", (KodiSeasonId,))
+                season_row = self.cursor.fetchone()
+                SeasonId = season_row[0] if season_row else None
+        return (SeriesId, SeasonId)
+
     # VideoStreams
     def get_videostreams(self, EmbyId):
         self.cursor.execute("SELECT * FROM VideoStreams WHERE EmbyId = ?", (EmbyId,))

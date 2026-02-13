@@ -3422,3 +3422,11 @@ msgstr ""
 msgctxt "#33815"
 msgid "Hide progress dialog for WebSocket-triggered incremental syncs."
 msgstr ""
+
+msgctxt "#33816"
+msgid "Auto-select same version for next episode"
+msgstr ""
+
+msgctxt "#33817"
+msgid "When playing multi-version content (e.g. 1080p and 4K), remember your choice and auto-select the same version for the next episode in the same show/season. Disable to always show the version selection dialog."
+msgstr ""

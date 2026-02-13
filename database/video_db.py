@@ -634,6 +634,15 @@ class VideoDatabase:
 
         return None
 
+    def get_seasonid_by_episodeid(self, KodiEpisodeId):
+        self.cursor.execute("SELECT idSeason FROM episode WHERE idEpisode = ?", (KodiEpisodeId,))
+        KodiSeasonId = self.cursor.fetchone()
+
+        if KodiSeasonId:
+            return KodiSeasonId[0]
+
+        return None
+
     def get_seasonid_by_showid_number(self, KodiTVShowId, KodiSeasonNumber):
         self.cursor.execute("SELECT idSeason FROM seasons WHERE idShow = ? AND season = ?", (KodiTVShowId, KodiSeasonNumber))
         KodiSeasonId = self.cursor.fetchone()

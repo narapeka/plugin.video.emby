@@ -243,44 +243,61 @@ def PlayerCommands():
                     # Multiversion selection
                     MediaSources = embydb.get_mediasource(EmbyId)
                     VideoStreams = embydb.get_videostreams(EmbyId)
+                    if KodiType == "episode":
+                        videodb = dbio.DBOpenRO("video", "onAVStarted")
+                        current_context = embydb.get_series_season_ids_for_episode(EmbyId, videodb)
+                        dbio.DBCloseRO("video", "onAVStarted")
+                    else:
+                        current_context = None
                     dbio.DBCloseRO(ServerId, "onAVStarted")
 
                     if len(MediaSources) > 1 and not utils.RemoteMode and not utils.SelectDefaultVideoversion:
                         if KodiType == "movie":
                             globals()["QueuedPlayingItem"][7] = "" # disable delete after watched option for multicontent
                         else:
-                            playerops.Pause()
+                            MediaIndex = None
+                            if utils.AutoSelectSameVersionNextEpisode and current_context == utils.LastSelectedVersionContext:
+                                idx = utils.resolve_mediasource_index_for_last_selection([m[3] for m in MediaSources], len(MediaSources))
+                                if idx >= 0:
+                                    MediaIndex = idx
 
-                            # Autoselect mediasource by highest resolution
-                            if utils.AutoSelectHighestResolution:
-                                HighestResolution = 0
-                                MediaIndex = 0
+                            if MediaIndex is None:
+                                playerops.Pause()
 
-                                for MediaSourceIndex, MediaSource in enumerate(MediaSources):
-                                    try:
-                                        # VideoStreams may be empty or lack per-source width for strm/no metadata
-                                        width = int(VideoStreams[MediaSourceIndex][4]) if MediaSourceIndex < len(VideoStreams) and VideoStreams else 0
-                                    except (IndexError, KeyError, TypeError, ValueError):
-                                        width = 0
-                                    if HighestResolution < width:
-                                        HighestResolution = width
-                                        MediaIndex = MediaSourceIndex
-                            else: # Manual select mediasource
-                                Selection = []
+                                # Autoselect mediasource by highest resolution
+                                if utils.AutoSelectHighestResolution:
+                                    HighestResolution = 0
+                                    MediaIndex = 0
 
-                                for MediaSource in MediaSources:
-                                    try:
-                                        size = float(MediaSource[4] or 0)
-                                    except (TypeError, ValueError):
-                                        size = 0.0
-                                    Selection.append(f"{MediaSource[3]} - {utils.SizeToText(size)} - {MediaSource[2]}")
+                                    for MediaSourceIndex, MediaSource in enumerate(MediaSources):
+                                        try:
+                                            width = int(VideoStreams[MediaSourceIndex][4]) if MediaSourceIndex < len(VideoStreams) and VideoStreams else 0
+                                        except (IndexError, KeyError, TypeError, ValueError):
+                                            width = 0
+                                        if HighestResolution < width:
+                                            HighestResolution = width
+                                            MediaIndex = MediaSourceIndex
+                                else: # Manual select mediasource
+                                    Selection = []
 
-                                MediaIndex = utils.Dialog.select(utils.Translate(33453), Selection)
+                                    for MediaSource in MediaSources:
+                                        try:
+                                            size = float(MediaSource[4] or 0)
+                                        except (TypeError, ValueError):
+                                            size = 0.0
+                                        Selection.append(f"{MediaSource[3]} - {utils.SizeToText(size)} - {MediaSource[2]}")
 
-                                if MediaIndex == -1:
-                                    Cancel()
-                                    xbmc.log("EMBY.hooks.player: --< [ onAVStarted ] cancel", 1) # LOGINFO
-                                    continue
+                                    MediaIndex = utils.Dialog.select(utils.Translate(33453), Selection)
+
+                                    if MediaIndex == -1:
+                                        utils.clear_last_selected_version_preference()
+                                        Cancel()
+                                        xbmc.log("EMBY.hooks.player: --< [ onAVStarted ] cancel", 1) # LOGINFO
+                                        continue
+
+                            utils.LastSelectedMediaSourceName = (MediaSources[MediaIndex][3] or "").strip()
+                            utils.LastSelectedMediaSourceIndex = MediaIndex
+                            utils.LastSelectedVersionContext = current_context
 
                             if MediaIndex == 0: # Multiversion not changes
                                 playerops.Unpause()
@@ -822,18 +839,39 @@ def load_unsynced_content(FullPath, PlaylistPosition, KodiType):
     # Dynamic widget item played via native mode
     if CachedItemFound and not QueuedPlayingItem:
         if MediaSourcesCount > 1 and not utils.RemoteMode:
-            playerops.Pause()
-            Selection = []
+            if KodiType == "episode":
+                embydb = dbio.DBOpenRO(ServerId, "load_unsynced")
+                videodb = dbio.DBOpenRO("video", "load_unsynced")
+                current_context = embydb.get_series_season_ids_for_episode(EmbyId, videodb)
+                dbio.DBCloseRO("video", "load_unsynced")
+                dbio.DBCloseRO(ServerId, "load_unsynced")
+            else:
+                current_context = None
 
-            for MediaSourceIndex in range(MediaSourcesCount):
-                Selection.append(f"{MediaSourceName[MediaSourceIndex]} - {utils.SizeToText(float(MediaSourceSize[MediaSourceIndex]))} - {MediaSourcePath[MediaSourceIndex]}")
+            MediaIndex = None
+            if utils.AutoSelectSameVersionNextEpisode and current_context == utils.LastSelectedVersionContext:
+                idx = utils.resolve_mediasource_index_for_last_selection(MediaSourceName, MediaSourcesCount)
+                if idx >= 0:
+                    MediaIndex = idx
 
-            MediaIndex = utils.Dialog.select(utils.Translate(33453), Selection)
+            if MediaIndex is None:
+                playerops.Pause()
+                Selection = []
 
-            if MediaIndex == -1:
-                Cancel()
-                xbmc.log("EMBY.hooks.player: --< [ onAVStarted ] cancel", 1) # LOGINFO
-                return False
+                for MediaSourceIndex in range(MediaSourcesCount):
+                    Selection.append(f"{MediaSourceName[MediaSourceIndex]} - {utils.SizeToText(float(MediaSourceSize[MediaSourceIndex]))} - {MediaSourcePath[MediaSourceIndex]}")
+
+                MediaIndex = utils.Dialog.select(utils.Translate(33453), Selection)
+
+                if MediaIndex == -1:
+                    utils.clear_last_selected_version_preference()
+                    Cancel()
+                    xbmc.log("EMBY.hooks.player: --< [ onAVStarted ] cancel", 1) # LOGINFO
+                    return False
+
+            utils.LastSelectedMediaSourceName = (MediaSourceName[MediaIndex] or "").strip()
+            utils.LastSelectedMediaSourceIndex = MediaIndex
+            utils.LastSelectedVersionContext = current_context
 
             if MediaIndex == 0:
                 playerops.Unpause()

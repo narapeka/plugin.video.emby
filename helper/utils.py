@@ -100,6 +100,9 @@ verifyFreeSpace = True
 verifyKodiCompanion = True
 SyncLiveTvOnEvents = False
 SelectDefaultVideoversion = False
+LastSelectedMediaSourceName = ""
+LastSelectedMediaSourceIndex = -1
+LastSelectedVersionContext = None
 transcode_h264 = False
 transcode_hevc = False
 transcode_av1 = False
@@ -274,6 +277,7 @@ MaxURILength = 1500
 SyncHighestResolutionAsDefault = True
 SyncLocalOverPlugins = True
 AutoSelectHighestResolution = False
+AutoSelectSameVersionNextEpisode = True
 NotifyEvents = False
 followhttp = False
 WebserviceWorkers = 10
@@ -858,6 +862,24 @@ def extract_file_paths(urls):
 
     return ["/".join(segs[common_len:]) for segs in split_paths]
 
+def resolve_mediasource_index_for_last_selection(names, count):
+    """Resolve index by last-selected name first, then by last-selected index. Returns -1 to show dialog."""
+    if count <= 0:
+        return -1
+    if LastSelectedMediaSourceName:
+        for i, n in enumerate(names):
+            if (n or "").strip() == LastSelectedMediaSourceName:
+                return i
+    if 0 <= LastSelectedMediaSourceIndex < count:
+        return LastSelectedMediaSourceIndex
+    return -1
+
+def clear_last_selected_version_preference():
+    """Call when user cancels the version selection dialog so the next play shows the dialog again."""
+    globals()["LastSelectedMediaSourceName"] = ""
+    globals()["LastSelectedMediaSourceIndex"] = -1
+    globals()["LastSelectedVersionContext"] = None
+
 def get_Filename(Path):
     Separator = get_Path_Seperator(Path)
     Pos = Path.rfind(Separator)
@@ -1122,6 +1144,7 @@ def InitSettings():
     load_settings_bool('SyncHighestResolutionAsDefault')
     load_settings_bool('SyncLocalOverPlugins')
     load_settings_bool('AutoSelectHighestResolution')
+    load_settings_bool('AutoSelectSameVersionNextEpisode')
     load_settings_bool('NotifyEvents')
     load_settings_bool('followhttp')
     load_settings_bool('BusyDialogClose')
