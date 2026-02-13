@@ -745,7 +745,7 @@ def GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo):
             return
 
         Selection = []
-
+        paths = []
         for MediaSource in MetaData['MediaSources']:
             try:
                 size = float(MediaSource[0].get('Size') or 0)
@@ -753,7 +753,10 @@ def GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo):
                 size = 0.0
             name = MediaSource[0].get('Name', '')
             path = MediaSource[0].get('Path', '')
-            Selection.append(f"{name} - {utils.SizeToText(size)} - {path}")
+            paths.append(path)
+            Selection.append((name, size, path))
+        display_paths = utils.extract_file_paths(paths) or paths
+        Selection = [f"{name} - {utils.SizeToText(size)} - {display_paths[i]}" for i, (name, size, path) in enumerate(Selection)]
 
         MetaData['SelectionIndexMediaSource'] = utils.Dialog.select(utils.Translate(33453), Selection)
 

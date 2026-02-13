@@ -3,7 +3,7 @@ import os
 import json
 import sys
 import re
-from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 from datetime import datetime, timedelta, timezone
 from dateutil import tz, parser
 
@@ -829,6 +829,34 @@ def safe_encode_url(url):
         ))
     except Exception:
         return quote(url, safe=":/?#[]@!$&'()*+,;=%")
+
+def extract_file_paths(urls):
+    if not urls:
+        return []
+    parsed = [urlparse(u) for u in urls]
+    paths = [unquote(p.path).strip("/") for p in parsed]
+
+    if len(set(paths)) > 1:
+        split_paths = [p.split("/") for p in paths]
+    else:
+        queries = [parse_qs(p.query) for p in parsed]
+        split_paths = []
+        for key in set().union(*(q.keys() for q in queries)):
+            values = [unquote(q.get(key, [""])[0]) for q in queries]
+            if len(set(values)) > 1 and any("/" in v for v in values):
+                split_paths = [v.split("/") for v in values]
+                break
+        if not split_paths:
+            return []
+
+    common_len = 0
+    for segs in zip(*split_paths):
+        if all(s == segs[0] for s in segs):
+            common_len += 1
+        else:
+            break
+
+    return ["/".join(segs[common_len:]) for segs in split_paths]
 
 def get_Filename(Path):
     Separator = get_Path_Seperator(Path)
