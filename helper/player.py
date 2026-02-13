@@ -257,16 +257,23 @@ def PlayerCommands():
                                 MediaIndex = 0
 
                                 for MediaSourceIndex, MediaSource in enumerate(MediaSources):
-                                    VideoStreamsWidth = int(VideoStreams[0][4]) # Resolution Width
-
-                                    if HighestResolution < VideoStreamsWidth:
-                                        HighestResolution = VideoStreamsWidth
+                                    try:
+                                        # VideoStreams may be empty or lack per-source width for strm/no metadata
+                                        width = int(VideoStreams[MediaSourceIndex][4]) if MediaSourceIndex < len(VideoStreams) and VideoStreams else 0
+                                    except (IndexError, KeyError, TypeError, ValueError):
+                                        width = 0
+                                    if HighestResolution < width:
+                                        HighestResolution = width
                                         MediaIndex = MediaSourceIndex
                             else: # Manual select mediasource
                                 Selection = []
 
                                 for MediaSource in MediaSources:
-                                    Selection.append(f"{MediaSource[3]} - {utils.SizeToText(float(MediaSource[4]))} - {MediaSource[2]}")
+                                    try:
+                                        size = float(MediaSource[4] or 0)
+                                    except (TypeError, ValueError):
+                                        size = 0.0
+                                    Selection.append(f"{MediaSource[3]} - {utils.SizeToText(size)} - {MediaSource[2]}")
 
                                 MediaIndex = utils.Dialog.select(utils.Translate(33453), Selection)
 

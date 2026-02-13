@@ -731,8 +731,14 @@ def GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo):
         MetaData['SelectionIndexMediaSource'] = 0
 
         for MediaSourceIndex, MediaSource in enumerate(MetaData['MediaSources']):
-            if HighestResolution < MediaSource[1][0]['Width']:
-                HighestResolution = MediaSource[1][0]['Width']
+            try:
+                width = MediaSource[1][0]['Width'] if (MediaSource[1] and len(MediaSource[1]) > 0) else 0
+                if width is None:
+                    width = 0
+            except (IndexError, KeyError, TypeError):
+                width = 0
+            if HighestResolution < width:
+                HighestResolution = width
                 MetaData['SelectionIndexMediaSource'] = MediaSourceIndex
     else: # Manual select mediasource
         if add_DelayedContent(MetaData, client):
@@ -741,7 +747,13 @@ def GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo):
         Selection = []
 
         for MediaSource in MetaData['MediaSources']:
-            Selection.append(f"{MediaSource[0]['Name']} - {utils.SizeToText(float(MediaSource[0]['Size']))} - {MediaSource[0]['Path']}")
+            try:
+                size = float(MediaSource[0].get('Size') or 0)
+            except (TypeError, ValueError):
+                size = 0.0
+            name = MediaSource[0].get('Name', '')
+            path = MediaSource[0].get('Path', '')
+            Selection.append(f"{name} - {utils.SizeToText(size)} - {path}")
 
         MetaData['SelectionIndexMediaSource'] = utils.Dialog.select(utils.Translate(33453), Selection)
 
