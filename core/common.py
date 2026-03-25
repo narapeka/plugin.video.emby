@@ -2,7 +2,7 @@ import os
 import base64
 from urllib.parse import quote, unquote
 import xbmc
-from helper import utils, artworkcache
+from helper import utils, artworkcache, pathutils
 EmbyTypeMappingShort = {"Movie": "m", "Episode": "e", "MusicVideo": "M", "Audio": "a", "Video": "v", "TvChannel": "t", "Trailer": "T"}
 EmbyArtworkIdShort = {"Primary": "p", "Art": "a", "Banner": "b", "Disc": "d", "Logo": "l", "Thumb": "t", "Backdrop": "B", "Chapter": "c", "SeriesPrimary": "p", "AlbumPrimary": "p", "ParentBackdrop": "B", "ParentThumb": "t", "ParentLogo": "l", "ParentBanner": "b", "AlbumArtists": "p", "ArtistItems": "p"}
 MarkerTypeMapping = {"IntroStart": "Intro Start", "IntroEnd": "Intro End", "CreditsStart": "Credits"}
@@ -310,11 +310,7 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
 
     if Item['KodiPath']:
         Item['KodiFilename'] = utils.get_Filename(Item['KodiPath'])
-        if Container == 'iso' or ".iso" in KodiPathLower:
-            NativeMode = True
-        elif KodiPathLower.startswith(('dav://', 'davs://', 'smb://', 'nfs://', 'ftp://', 'file://')):
-            NativeMode = True
-        elif KodiPathLower.startswith(('http://', 'https://')):
+        if KodiPathLower.startswith(('http://', 'https://')):
             NativeMode = False
             Dynamic += "http/"
             isHttpByEmby = True
@@ -323,7 +319,7 @@ def set_path_filename(Item, ServerId, MediaSource, isDynamic=False):
             else:
                 Item['KodiFilename'] = "unknown"
         else:
-            NativeMode = False
+            NativeMode = pathutils.is_native_path(Item['KodiPath'], Container)
     else: # channels
         Item['KodiFilename'] = "unknown"
         NativeMode = False
