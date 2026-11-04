@@ -1,38 +1,56 @@
 import threading
-import json
-import xbmc
-from helper import utils, queue, cache, copy
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from contextlib import ExitStack
+from helper import utils, queue, cache, copy, paging
 from database import dbio
-from . import listitem, httpcache, metadata
+from . import httpcache, metadata
 
 EmbyFields = {
     "musicartist": ["Genres", "SortName", "ProductionYear", "DateCreated", "ProviderIds", "Overview", "Path", "PresentationUniqueKey", "UserDataPlayCount", "UserDataLastPlayedDate"],
     "musicalbum": ["Genres", "SortName", "ProductionYear", "DateCreated", "ProviderIds", "Overview", "Path", "Studios", "PremiereDate", "UserDataPlayCount", "UserDataLastPlayedDate", "CommunityRating"],
     "audio": ["Genres", "SortName", "ProductionYear", "DateCreated", "MediaStreams", "ProviderIds", "Overview", "Path", "PremiereDate", "UserDataPlayCount", "UserDataLastPlayedDate", "CommunityRating", "ParentId", "MediaSources"],
-    "movie": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "LocalTrailerCount", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "CriticRating", "ShortOverview", "ProductionLocations", "ProviderIds", "ParentId", "RemoteTrailers", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "PartCount", "SpecialFeatureCount", "Chapters", "Tags", "UserDataPlayCount", "UserDataLastPlayedDate"],
-    "trailer": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "CriticRating", "ShortOverview", "ProductionLocations", "ProviderIds", "ParentId", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "Chapters", "Tags"],
+    "movie": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "ShortOverview", "ProductionLocations", "ProviderIds", "ParentId", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "PartCount", "Chapters", "Tags", "UserDataPlayCount", "UserDataLastPlayedDate"],
     "boxset": ["Overview", "SortName", "DateCreated", "UserDataPlayCount", "UserDataLastPlayedDate"],
-    "series": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "CriticRating", "ShortOverview", "ProviderIds", "ParentId", "Status", "PresentationUniqueKey", "OriginalTitle", "Tags", "LocalTrailerCount", "RemoteTrailers", "UserDataPlayCount", "UserDataLastPlayedDate"],
+    "series": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "ShortOverview", "ProviderIds", "ParentId", "Status", "PresentationUniqueKey", "OriginalTitle", "Tags", "UserDataPlayCount", "UserDataLastPlayedDate"],
     "season": ["PresentationUniqueKey", "SortName", "Tags", "DateCreated", "UserDataPlayCount", "UserDataLastPlayedDate", "Overview"],
-    "episode": ["SpecialEpisodeNumbers", "ParentId", "Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "LocalTrailerCount", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "CriticRating", "ShortOverview", "Tags", "ProviderIds", "RemoteTrailers", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "PartCount", "SpecialFeatureCount", "Chapters", "UserDataPlayCount", "UserDataLastPlayedDate"],
-    "musicvideo": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "CriticRating", "ShortOverview", "Tags", "ProviderIds", "ParentId", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "PartCount", "Chapters", "UserDataPlayCount", "UserDataLastPlayedDate"],
-    "video": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "CriticRating", "ShortOverview", "ProductionLocations", "ProviderIds", "ParentId", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "Chapters", "Tags", "UserDataPlayCount", "UserDataLastPlayedDate"],
-    "photo": ["Path", "SortName", "ProductionYear", "ParentId", "PremiereDate", "Width", "Height", "Tags", "DateCreated", "UserDataPlayCount", "UserDataLastPlayedDate", "PresentationUniqueKey"],
-    "photoalbum": ["Path", "SortName", "Taglines", "DateCreated", "ShortOverview", "ProductionLocations", "Tags", "ParentId", "OriginalTitle", "UserDataPlayCount", "UserDataLastPlayedDate", "PresentationUniqueKey"],
-    "tvchannel": ["Genres", "SortName", "Taglines", "DateCreated", "Overview", "MediaSources", "Tags", "MediaStreams", "UserDataPlayCount", "UserDataLastPlayedDate"],
+    "episode": ["SpecialEpisodeNumbers", "ParentId", "Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "ShortOverview", "Tags", "ProviderIds", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "PartCount", "Chapters", "UserDataPlayCount", "UserDataLastPlayedDate"],
+    "musicvideo": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "ShortOverview", "Tags", "ProviderIds", "ParentId", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "PartCount", "Chapters", "UserDataPlayCount", "UserDataLastPlayedDate"],
+    "video": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "ShortOverview", "ProductionLocations", "ProviderIds", "ParentId", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "Chapters", "Tags", "UserDataPlayCount", "UserDataLastPlayedDate"],
     "folder": ["Path",],
     "playlist": ["SortName", "Overview", "Path"],
     "genre": [],
     "musicgenre": [],
     "person": [],
     "tag": [],
-    "channel": [],
     "collectionfolder": [],
     "studio": [],
-    "program": [],
-    "all": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "CriticRating", "ShortOverview", "ProductionLocations", "ProviderIds", "ParentId", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "Chapters", "Tags", "UserDataPlayCount", "UserDataLastPlayedDate"]
+    "all": ["Path", "Genres", "SortName", "Studios", "Writer", "Taglines", "Video3DFormat", "OfficialRating", "PremiereDate", "ProductionYear", "DateCreated", "People", "Overview", "CommunityRating", "ShortOverview", "ProductionLocations", "ProviderIds", "ParentId", "MediaSources", "PresentationUniqueKey", "OriginalTitle", "AlternateMediaSources", "Chapters", "Tags", "UserDataPlayCount", "UserDataLastPlayedDate"]
 }
 
+
+class _ChangeItems:
+    """Keep only startup sync inputs, not complete response objects."""
+    def __init__(self, MediaType, Abort):
+        self.MediaType = MediaType.lower()
+        self.Abort = Abort
+        self.Items = []
+
+    def put(self, Data):
+        if utils.SystemShutdown or self.Abort.is_set():
+            raise InterruptedError("Change discovery cancelled")
+
+        if Data == "QUIT":
+            return
+
+        for Item in Data:
+            if Item['Type'].lower() == self.MediaType:
+                Change = {'Id': Item['Id'], 'Type': Item['Type']}
+
+                if Item['Type'] in utils.FavoriteTypes:
+                    Change['UserData'] = Item['UserData']
+
+                self.Items.append(Change)
 
 class API:
     def __init__(self, ServerData, ViewItems, LibrarySyncedNames, LibrarySyncedContent, LibrarySyncedKodiDBs, EmbySession, http):
@@ -43,8 +61,6 @@ class API:
         self.LibrarySyncedKodiDBs = LibrarySyncedKodiDBs
         self.EmbySession = EmbySession
         self.http = http
-        self.DynamicListsRemoveFields = ()
-        self.update_settings()
         self.ProcessProgress = {}
         self.ProcessProgressCondition = threading.Condition(threading.Lock())
 
@@ -54,134 +70,6 @@ class API:
         with utils.SafeLock(self.ProcessProgressCondition):
             self.ProcessProgressCondition.notify_all()
 
-    def update_settings(self):
-        self.DynamicListsRemoveFields = ()
-
-        if not utils.getDateCreated:
-            self.DynamicListsRemoveFields += ("DateCreated",)
-
-        if not utils.getGenres:
-            self.DynamicListsRemoveFields += ("Genres",)
-
-        if not utils.getStudios:
-            self.DynamicListsRemoveFields += ("Studios",)
-
-        if not utils.getTaglines:
-            self.DynamicListsRemoveFields += ("Taglines",)
-
-        if not utils.getOverview:
-            self.DynamicListsRemoveFields += ("Overview",)
-
-        if not utils.getProductionLocations:
-            self.DynamicListsRemoveFields += ("ProductionLocations",)
-
-        if not utils.getCast:
-            self.DynamicListsRemoveFields += ("People",)
-
-    def open_livestream(self, Id):
-        _, _, Payload = self.http.request("POST", f"Items/{Id}/PlaybackInfo", {'UserId': self.ServerData['UserId'], "IsPlayback": "true", "AutoOpenLiveStream": "true"}, {}, False, "", None, "")
-
-        if 'MediaSources' in Payload and Payload['MediaSources']:
-            MediaSourceId = Payload['MediaSources'][0]['Id']
-            LiveStreamId = Payload['MediaSources'][0].get('LiveStreamId', None)
-            Container = Payload['MediaSources'][0].get('Container', "")
-            PlaySessionId = Payload['PlaySessionId']
-        else:
-            MediaSourceId = None
-            LiveStreamId = None
-            Container = None
-            PlaySessionId = None
-
-        return MediaSourceId, LiveStreamId, PlaySessionId, Container
-
-    def get_Items_dynamic(self, ParentId, MediaTypes, Recursive, Extra, Resume, LibraryId):
-        CustomLimit = False
-
-        if Resume:
-            Request = f"Users/{self.ServerData['UserId']}/Items/Resume"
-        else:
-            Request = f"Users/{self.ServerData['UserId']}/Items" # Userdata must be always queried, otherwise ParentId parameter is not respected by Emby server
-
-        ItemsQueue = queue.Queue()
-        ItemsFullQuery = 10000 * [()] # pre allocate memory
-        ItemIndex = 0
-
-        for MediaType in MediaTypes:
-            Limit = get_Limit(MediaType)
-            Params = {'EnableTotalRecordCount': False, 'Recursive': Recursive, 'Limit': Limit}
-
-            if ParentId and str(ParentId) not in ("999999999", "999999998"):
-                Params['ParentId'] = ParentId
-
-            if MediaType != "All":
-                Params['IncludeItemTypes'] = MediaType
-
-            if Extra:
-                CustomLimit = bool("Limit" in Extra)
-                Params.update(Extra)
-
-            embydb = None
-            videodb = None
-            musicdb = None
-            utils.start_thread(self.async_get_Items, (Request, ItemsQueue, Params, "", CustomLimit, None))
-
-            while True:
-                BasicItem = ItemsQueue.get()
-
-                if BasicItem == "QUIT":
-                    break
-
-                # Try to find content by internal database first, before query Emby server
-                if BasicItem['Type'] not in ("Movie", "Video", "Series", "Season", "Episode", "MusicVideo", "MusicArtist", "MusicAlbum", "Audio", "PhotoAlbum", "Photo", "Folder", "Trailer"):
-                    if ItemIndex % 10000 == 0: # modulo 10000
-                        ItemsFullQuery += 10000 * [()] # pre allocate memory
-
-                    ItemsFullQuery[ItemIndex] = (BasicItem['Type'], BasicItem['Id'], BasicItem)
-                    ItemIndex += 1
-                    continue
-
-                if not embydb:
-                    embydb = dbio.DBOpenRO(self.ServerData['ServerId'], "get_Items_dynamic")
-                    videodb = dbio.DBOpenRO("video", "get_Items_dynamic")
-                    musicdb = dbio.DBOpenRO("music", "get_Items_dynamic")
-
-                KodiItem = self.get_ListItem(BasicItem, LibraryId, embydb, videodb, musicdb)
-
-                if KodiItem:
-                    yield KodiItem
-                else:
-                    if ItemIndex % 10000 == 0: # modulo 10000
-                        ItemsFullQuery += 10000 * [()] # pre allocate memory
-
-                    ItemsFullQuery[ItemIndex] = (BasicItem['Type'], BasicItem['Id'], BasicItem)
-                    ItemIndex += 1
-
-            if embydb:
-                dbio.DBCloseRO("video", "get_Items_dynamic")
-                dbio.DBCloseRO("music", "get_Items_dynamic")
-                dbio.DBCloseRO(self.ServerData['ServerId'], "get_Items_dynamic")
-
-        SortItems = {'Movie': (), 'BoxSet': (), 'MusicVideo': (), 'Series': (), 'Season': (), 'Episode': (), 'Folder': (), 'MusicArtist': (), 'AlbumArtist': (), 'MusicAlbum': (), 'Audio': (), 'Genre': (), 'MusicGenre': (), 'Tag': (), 'Person': (), 'Studio': (), 'Playlist': (), 'Photo': (), 'PhotoAlbum': (), 'Video': (), 'Trailer': (), 'Channel': (), 'CollectionFolder': (), 'Program': ()}
-
-        for ItemFullQuery in ItemsFullQuery:
-            if not ItemFullQuery:
-                continue
-
-            SortItems[ItemFullQuery[0]] += ((ItemFullQuery[1], ItemFullQuery[2]),)
-
-        # request extended item data
-        for Type, ItemData in list(SortItems.items()):
-            if ItemData:
-                Fields = EmbyFields[Type.lower()]
-
-                if Fields and Fields != ("Path",): # Query additional data
-                    ExtraMod = Extra.copy()
-                    ExtraMod.pop("IsFavorite", None)
-                    ExtraMod.pop("SpecialFilter", None)
-                    yield from self.get_Items_Ids(list(dict(ItemData).keys()), [Type], True, False, False, "", ExtraMod, None, True)
-                else:  # no extended information required
-                    for Item in ItemData:
-                        yield Item[1]
 
     def get_Items_Ids(self, Ids, MediaTypes, Dynamic, Basic, ProcessProgressId, LibraryId, Extra, BusyFunction, UserData):
         # Load Item from cache
@@ -222,7 +110,6 @@ class API:
                 del Items
 
     def async_get_Items_Ids(self, ItemsQueue, Ids, Dynamic, Basic, ProcessProgressId, LibraryId, MediaType, Extra, BusyFunction, UserData):
-        if utils.DebugLog: xbmc.log("EMBY.emby.api (DEBUG): THREAD: --->[ load Item by Ids ]", 1) # LOGDEBUG
         CounterFound = 0
         ItemsSorted = ()
         IdsBackup = ()
@@ -277,14 +164,34 @@ class API:
                     _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
 
                     if 'Items' in Payload:
-                        for Item in Payload['Items']:
-                            Item['LibraryId'] = LibraryId
+                        ReceivedIds = {}
 
-                            if Item['Id'] in Ids:
-                                del Ids[Ids.index(Item['Id'])]
+                        try:
+                            for Item in Payload['Items']:
+                                Item['LibraryId'] = LibraryId
+                                ItemId = Item['Id']
 
-                            ItemsQueue.put(Item)
-                            CounterFound += 1
+                                # Request IDs are strings; other JSON types never match them.
+                                if isinstance(ItemId, str):
+                                    ReceivedIds[ItemId] = ReceivedIds.get(ItemId, 0) + 1
+
+                                ItemsQueue.put(Item)
+                                CounterFound += 1
+                        finally:
+                            if ReceivedIds:
+                                RemainingIds = []
+
+                                for ItemId in Ids:
+                                    if ReceivedIds.get(ItemId, 0):
+                                        ReceivedIds[ItemId] -= 1
+                                    else:
+                                        RemainingIds.append(ItemId)
+
+                                # Only this API thread owns the copy; retain its order and identity.
+                                Ids[:] = RemainingIds
+                                del RemainingIds
+
+                            del ReceivedIds
                 else: # realtime updates via websocket
                     if SubContent: # Workaround: Subcontent does not always respect ParentId queries
                         if not LibrarySyncedIds:
@@ -310,7 +217,7 @@ class API:
                         for LibrarySyncedId in self.LibrarySyncedNames:
                             CounterFoundSubItems = 0
 
-                            if str(LibrarySyncedId) not in ("999999999", "999999998"):
+                            if str(LibrarySyncedId) not in ("999999999",):
                                 Params.update({'ParentId': LibrarySyncedId})
                             else:
                                 if MediaType != "Person":
@@ -333,7 +240,7 @@ class API:
 
                             if CounterFoundSubItems == len(Ids) or utils.SystemShutdown: # All data received, no need to check additional libraries
                                 break
-            else: # dynamic node query
+            else: # Resolve requested items for remote playback or generated ListItems
                 _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
 
                 # Emby server bug, MusicArtist, MusicAlbum, Audio queries on mixed content libraries are not accepted, wen userdate are request. Try workaround
@@ -359,8 +266,6 @@ class API:
 
                                 if Item['Id'] in Ids:
                                     del Ids[Ids.index(Item['Id'])]
-                            else:
-                                xbmc.log(f"EMBY.emby.api: ItemId not found in Ids: {Item['Id']}", 2) # LOGWARNING
 
                     CounterFound += len(Payload['Items'])
 
@@ -387,49 +292,31 @@ class API:
             del ItemsSorted
 
         ItemsQueue.put("QUIT")
-        if utils.DebugLog: xbmc.log("EMBY.emby.api (DEBUG): THREAD: ---<[ load Item by Ids ]", 1) # LOGDEBUG
 
     def async_throttle_queries(self, Index, ProcessProgressId):
         if ProcessProgressId and ProcessProgressId in self.ProcessProgress:
-            if utils.DebugLog: xbmc.log(f"EMBY.emby.api (DEBUG): Throttle queries {Index} / {ProcessProgressId} / {self.ProcessProgress[ProcessProgressId]}", 1) # Log inside loop, before wait
-            if utils.DebugLog: xbmc.log("EMBY.emby.api (DEBUG): CONDITION: --->[ ProcessProgressCondition ]", 1) # LOGDEBUG
 
             with utils.SafeLock(self.ProcessProgressCondition):
                 while Index > self.ProcessProgress[ProcessProgressId]:
                     if utils.SystemShutdown or self.ProcessProgress[ProcessProgressId] == -1: # Cancel
-                        if utils.DebugLog: xbmc.log("EMBY.emby.api (DEBUG): CONDITION: ---<[ ProcessProgressCondition ]", 1) # LOGDEBUG
                         return False
 
                     self.ProcessProgressCondition.wait(timeout=0.1)
 
-            if utils.DebugLog: xbmc.log("EMBY.emby.api (DEBUG): CONDITION: ---<[ ProcessProgressCondition ]", 1) # LOGDEBUG
-
         return True
 
     def get_Items(self, ParentId, MediaTypes, Basic, Extra, ProcessProgressId, BusyFunction, UserData):
-        CustomLimit = False
+
         ItemsQueue = queue.Queue()
 
-        if UserData:
-            Request = f"Users/{self.ServerData['UserId']}/Items"
-        else:
-            Request = "Items"
-
         for MediaType in MediaTypes:
-            Params = {'EnableTotalRecordCount': False, 'Recursive': True, 'Limit': get_Limit(MediaType), 'IncludeItemTypes': MediaType, 'Fields': self.get_Fields(MediaType, Basic, False, UserData)}
-            RequestLocal = Request
 
-            if ParentId and str(ParentId) not in ("999999999", "999999998"):
-                Params['ParentId'] = ParentId
-            elif str(ParentId) == "999999998":
-                RequestLocal = "Items"
+            # People are created from selected work credits; only query their metadata deltas.
+            if MediaType == "Person" and not Basic:
+                continue
 
-            if Extra:
-                CustomLimit = bool("Limit" in Extra)
-                Params.update(Extra)
-
-            if 'SortBy' not in Params:
-                Params['SortBy'] = "None"
+            RequestLocal, Params = self.get_Items_Request(ParentId, MediaType, Basic, Extra, UserData)
+            CustomLimit = bool(Extra and "Limit" in Extra)
 
             utils.start_thread(self.async_get_Items, (RequestLocal, ItemsQueue, Params, ProcessProgressId, CustomLimit, BusyFunction))
             ExitLoop = False
@@ -450,56 +337,98 @@ class API:
                         break
 
                     if Item['Type'].lower() == MediaType.lower():
+                        if MediaType == "Studio":
+                            Item['StudioForSeries'] = True
                         yield Item
-                    else:
-                        if utils.DebugLog: xbmc.log(f"EMBY.emby.api (DEBUG): Server bug, wrong data received: Received type: {Item['Type']} / Requested type: {MediaType}", 1) # LOGDEBUG
 
                 del Items  # release memory
 
                 if ExitLoop:
                     break
 
-    def get_channelprogram(self):
-        Params = {'UserId': self.ServerData['UserId'], 'Fields': "Overview", 'EnableTotalRecordCount': False, 'Limit': get_Limit("livetv")}
-        ItemsQueue = queue.Queue()
-        utils.start_thread(self.async_get_Items, ("LiveTv/Programs", ItemsQueue, Params, "", False, None))
 
-        while True:
-            Items = ItemsQueue.getall()
+    def get_Items_Request(self, ParentId, MediaType, Basic, Extra, UserData):
+        Request = f"Users/{self.ServerData['UserId']}/Items" if UserData else "Items"
+        Params = {'EnableTotalRecordCount': False, 'Recursive': True, 'Limit': paging.get_limit(MediaType),
+                  'IncludeItemTypes': MediaType, 'Fields': self.get_Fields(MediaType, Basic, False, UserData)}
 
-            if utils.SystemShutdown or not Items:
-                return
+        if MediaType == "Studio":
+            Request = "Studios"
+            Params.update({'IncludeItemTypes': "Series", 'UserId': self.ServerData['UserId'], 'EnableUserData': UserData})
 
-            if Items[-1] == "QUIT":
-                yield from Items[:-1]
-                del Items
-                return
+        if ParentId and str(ParentId) != "999999999":
+            Params['ParentId'] = ParentId
 
-            yield from Items
-            del Items
+        Params.update(Extra or {})
+        Params.setdefault('SortBy', "None")
+        return Request, Params
 
-    def get_recommendations(self, ParentId):
-        _, _, Payload = self.http.request("GET", "Movies/Recommendations", {'ParentId': ParentId, 'UserId': self.ServerData['UserId'], 'Fields': self.get_Fields("movie", False, True, True), 'EnableTotalRecordCount': False, 'Recursive': True}, {}, False, "", None, "")
-        embydb = dbio.DBOpenRO(self.ServerData['ServerId'], "get_recommendations")
-        videodb = dbio.DBOpenRO("video", "get_recommendations")
-        RecommendationsItems = []
+    def get_ItemChanges(self, Query, ConnectionId, Abort):
+        ParentId, MediaType, Extra = Query
+        Request, Params = self.get_Items_Request(ParentId, MediaType, True, Extra, True)
+        Items = _ChangeItems(MediaType, Abort)
+        # Run pagination in the pool worker itself; no producer thread per query.
+        self.async_get_Items(Request, Items, Params, "", bool(Extra and "Limit" in Extra), None, ConnectionId)
 
-        for Data in Payload:
-            if 'Items' in Data:
-                for Item in Data['Items']:
-                    KodiItem = self.get_ListItem(Item, 0, embydb, videodb, None)
+        if utils.SystemShutdown or Abort.is_set():
+            raise InterruptedError("Change discovery cancelled")
 
-                    if KodiItem:
-                        RecommendationsItems.append(KodiItem) # {"ListItem": ListItem, "Path": KodiItem[0]['path'], "IsFolder": IsFolder, "Type": KodiItem[1]}
-                    else:
-                        RecommendationsItems.append(Item)
+        return Items.Items
 
-        dbio.DBCloseRO("video", "get_recommendations")
-        dbio.DBCloseRO(self.ServerData['ServerId'], "get_recommendations")
-        return RecommendationsItems
+    def get_Changes(self, Queries):
+        """Fetch bounded independent queries and yield in their original order."""
+        Queries = iter(Queries)
+        Abort = threading.Event()
 
-    def async_get_Items(self, Request, ItemsQueue, Params, ProcessProgressId, CustomLimit, BusyFunction):
-        if utils.DebugLog: xbmc.log("EMBY.emby.api (DEBUG): THREAD: --->[ load Items ]", 1) # LOGDEBUG
+        with ExitStack() as Connections:
+            Pool = ThreadPoolExecutor(max_workers=paging.CHANGE_QUERY_WORKERS, thread_name_prefix="EmbyChanges")
+            Pending = deque()
+            ConnectionIds = []
+
+            try:
+                for _ in range(paging.CHANGE_QUERY_WORKERS):
+                    Query = next(Queries, None)
+
+                    if Query is None:
+                        break
+
+                    ConnectionId = Connections.enter_context(self.http.HTTP.query_connection(Abort.is_set))
+                    ConnectionIds.append(ConnectionId)
+                    Pending.append((Query, ConnectionId, Pool.submit(self.get_ItemChanges, Query, ConnectionId, Abort)))
+
+                while Pending:
+                    Query, ConnectionId, Future = Pending.popleft()
+
+                    while True:
+                        if utils.SystemShutdown:
+                            raise InterruptedError("Change discovery cancelled")
+
+                        try:
+                            Items = Future.result(timeout=0.1)
+                            break
+                        except FutureTimeout:
+                            if Future.done():
+                                Items = Future.result()  # Propagate a worker's own TimeoutError.
+                                break
+
+                    yield Query, Items
+                    Query = next(Queries, None)
+
+                    if Query is not None:
+                        Pending.append((Query, ConnectionId, Pool.submit(self.get_ItemChanges, Query, ConnectionId, Abort)))
+            finally:
+                Abort.set()
+
+                # Wake blocked I/O before joining; retries see the abort event.
+                for ConnectionId in ConnectionIds:
+                    self.http.HTTP.Common.socket_close(ConnectionId, False)
+
+                for _, _, Future in Pending:
+                    Future.cancel()
+
+                Pool.shutdown(wait=True)
+
+    def async_get_Items(self, Request, ItemsQueue, Params, ProcessProgressId, CustomLimit, BusyFunction, ConnectionId=""):
         Index = 0
         ItemCounter = 0
         Limit = Params['Limit']
@@ -534,7 +463,13 @@ class API:
                 ContentSupported = Params["ContentSupported"]
                 del Params["ContentSupported"]
 
-            _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
+            StatusCode, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, ConnectionId)
+
+            if ConnectionId:  # Startup discovery must not interpret a failed page as no changes.
+                if StatusCode == 204:
+                    Payload = {'Items': []}
+                elif StatusCode != 200 or not isinstance(Payload, dict) or not isinstance(Payload.get('Items'), list):
+                    raise RuntimeError(f"Change query failed: {StatusCode} / {Params.get('IncludeItemTypes')}")
 
             # Emby server bug, MusicArtist, MusicAlbum, Audio queries on mixed content libraries are not accepted, when userdata are requested. Try workaround
             if 'Items' in Payload and not Payload['Items'] and not "MinDateLastSavedForUser" in Params:
@@ -570,7 +505,7 @@ class API:
             if ParentIdStr in self.ViewItems:
                 isMixed = self.ViewItems[ParentIdStr][1] == "mixed"
 
-            # MusicArtist is not unique for MusicVideo and Audio, verify subcontent (e.g. used by dynamic nodes -> root node or mixed content libraries)
+            # MusicArtist is not unique for MusicVideo and Audio; verify subcontent in mixed libraries
             if 'Items' in Payload and Payload['Items'] and ContentSupported and (ParentId < 1 or isMixed):
                 VerifyContent = False
                 ParamsCheck = {}
@@ -584,7 +519,7 @@ class API:
                     VerifyContent = True
                 elif Params['IncludeItemTypes'] == "BoxSet":
                     if ContentSupported == "video":
-                        ParamsCheck = {"Recursive": True, "IncludeItemTypes": "MusicVideo,Movie,Episode,Video,Trailer", "Limit": 1}
+                        ParamsCheck = {"Recursive": True, "IncludeItemTypes": "MusicVideo,Movie,Episode,Video", "Limit": 1}
                     else:
                         ParamsCheck = {"Recursive": True, "IncludeItemTypes": "Audio", "Limit": 1}
 
@@ -608,7 +543,6 @@ class API:
                 if utils.SystemShutdown or not Payload:
                     ItemsQueue.put("QUIT")
                     del Payload  # release memory
-                    if utils.DebugLog: xbmc.log("EMBY.emby.api (DEBUG): THREAD: ---<[ load Items ] (latest / no items found or shutdown)", 1) # LOGDEBUG
                     return
 
                 ItemsQueue.put(Payload)
@@ -618,7 +552,6 @@ class API:
                 if utils.SystemShutdown or 'Items' not in Payload or not Payload['Items']:
                     ItemsQueue.put("QUIT")
                     del Payload  # release memory
-                    if utils.DebugLog: xbmc.log("EMBY.emby.api (DEBUG): THREAD: ---<[ load Items ] (no items found or shutdown)", 1) # LOGDEBUG
                     return
 
                 ItemsQueue.put(Payload['Items'])
@@ -629,17 +562,14 @@ class API:
 
             if ReceivedItems < Limit:
                 ItemsQueue.put("QUIT")
-                if utils.DebugLog: xbmc.log(f"EMBY.emby.api (DEBUG): THREAD: ---<[ load Items ] Limit: {Limit} / ReceivedItems: {ReceivedItems}", 1) # LOGDEBUG
                 return
 
             if CustomLimit:
                 ItemsQueue.put("QUIT")
-                if utils.DebugLog: xbmc.log("EMBY.emby.api (DEBUG): THREAD: ---<[ load Items ] (limit reached)", 1) # LOGDEBUG
                 return
 
             if not self.async_throttle_queries(Index, ProcessProgressId):
                 ItemsQueue.put("QUIT")
-                if utils.DebugLog: xbmc.log("EMBY.emby.api (DEBUG): THREAD: ---<[ load Items ] (throttle)", 1) # LOGDEBUG
                 return
 
             Index += Limit
@@ -664,223 +594,41 @@ class API:
 
         return {}
 
-    def get_TotalRecords(self, parent_id, item_type, Extra):
-        Params = {'ParentId': parent_id, 'IncludeItemTypes': item_type, 'EnableTotalRecordCount': True, 'Recursive': True, 'Limit': 1}
 
-        if Extra:
-            Params.update(Extra)
+    def get_similar(self, Id, EmbyType, Limit, Cancelled):
+        """Return raw identities for the local Similar API; never create dynamic items."""
+        with self.http.HTTP.query_connection(Cancelled, "SIMILAR") as ConnectionId:
+            Status, _, Payload = self.http.request("GET", f"Items/{Id}/Similar", {
+                'UserId': self.ServerData['UserId'], 'IncludeItemTypes': EmbyType, 'Limit': Limit,
+                'EnableTotalRecordCount': False, 'EnableImages': False, 'EnableUserData': False
+            }, {}, False, "", None, ConnectionId)
+        if Status != 200 or not isinstance(Payload, dict) or not isinstance(Payload.get('Items'), list):
+            return None
+        return Payload['Items']
 
-        _, _, Payload = self.http.request("GET", "Items", Params, {}, False, "", None, "")
-
-        if 'TotalRecordCount' in Payload:
-            return int(Payload['TotalRecordCount'])
-
-        return 0
-
-    def get_timer(self, ProgramId):
-        _, _, Payload = self.http.request("GET", "LiveTv/Timers", {'programId': ProgramId}, {}, False, "", None, "")
-
-        if 'Items' in Payload:
-            return Payload['Items']
-
-        return []
-
-    def set_timer(self, ProgramId):
-        _, _, Payload = self.http.request("POST", "LiveTv/Timers", {'programId': ProgramId}, {}, False, "", None, "")
-        return Payload
-
-    def delete_timer(self, TimerId):
-        _, _, Payload = self.http.request("POST", f"LiveTv/Timers/{TimerId}/Delete", {}, {}, False, "", None, "")
-        return Payload
-
-    def get_users(self, disabled, hidden):
-        _, _, Payload = self.http.request("GET", "Users", {'IsDisabled': disabled, 'IsHidden': hidden}, {}, False, "", None, "")
+    def get_users(self):
+        _, _, Payload = self.http.request("GET", "Users", {'IsDisabled': False, 'IsHidden': False}, {}, False, "", None, "")
         return Payload
 
     def get_public_users(self):
         _, _, Payload = self.http.request("GET", "Users/Public", {}, {}, False, "", None, "")
         return Payload
 
-    def get_user(self, user_id):
-        if not user_id:
-            _, _, Payload = self.http.request("GET", f"Users/{self.ServerData['UserId']}", {}, {}, False, "", None, "")
-            return Payload
-
-        _, _, Payload = self.http.request("GET", f"Users/{user_id}", {}, {}, False, "", None, "")
-        return Payload
-
-    def get_libraries(self):
-        _, _, Payload = self.http.request("GET", "Library/VirtualFolders/Query", {}, {}, False, "", None, "")
-        return Payload
 
     def get_views(self):
         _, _, Payload = self.http.request("GET", f"Users/{self.ServerData['UserId']}/Views", {}, {}, False, "", None, "")
         return Payload
 
-    def download_file(self, *args):
-        self.http.Queues["DOWNLOAD"].put((args,))
-
-    def get_Image_Binary(self, Id, ImageType, ImageIndex, ImageTag, UserImage, Format="jpg"):
-        Params = {"EnableImageEnhancers": utils.enableCoverArt, "Format": Format}
-
-        if utils.compressArt:
-            Params["Quality"] = utils.compressArtLevel
-
-        if utils.ArtworkLimitations:
-            Width = 100
-            Height = 100
-
-            if ImageType == "Primary":
-                Width = utils.ScreenResolution[0] * int(utils.ArtworkLimitationPrimary) / 100
-                Height = utils.ScreenResolution[1] * int(utils.ArtworkLimitationPrimary) / 100
-            elif ImageType == "Art":
-                Width = utils.ScreenResolution[0] * int(utils.ArtworkLimitationArt) / 100
-                Height = utils.ScreenResolution[1] * int(utils.ArtworkLimitationArt) / 100
-            elif ImageType == "Banner":
-                Width = utils.ScreenResolution[0] * int(utils.ArtworkLimitationBanner) / 100
-                Height = utils.ScreenResolution[1] * int(utils.ArtworkLimitationBanner) / 100
-            elif ImageType == "Disc":
-                Width = utils.ScreenResolution[0] * int(utils.ArtworkLimitationDisc) / 100
-                Height = utils.ScreenResolution[1] * int(utils.ArtworkLimitationDisc) / 100
-            elif ImageType == "Logo":
-                Width = utils.ScreenResolution[0] * int(utils.ArtworkLimitationLogo) / 100
-                Height = utils.ScreenResolution[1] * int(utils.ArtworkLimitationLogo) / 100
-            elif ImageType == "Thumb":
-                Width = utils.ScreenResolution[0] * int(utils.ArtworkLimitationThumb) / 100
-                Height = utils.ScreenResolution[1] * int(utils.ArtworkLimitationThumb) / 100
-            elif ImageType == "Backdrop":
-                Width = utils.ScreenResolution[0] * int(utils.ArtworkLimitationBackdrop) / 100
-                Height = utils.ScreenResolution[1] * int(utils.ArtworkLimitationBackdrop) / 100
-            elif ImageType == "Chapter":
-                Width = utils.ScreenResolution[0] * int(utils.ArtworkLimitationChapter) / 100
-                Height = utils.ScreenResolution[1] * int(utils.ArtworkLimitationChapter) / 100
-
-            Params["MaxWidth"] = int(Width)
-            Params["MaxHeight"] = int(Height)
-
-        if UserImage:
-            Params["Format"] = "original"
-            _, Header, Payload = self.http.request("GET", f"Users/{Id}/Images/{ImageType}", Params, {}, True, "", None, "")
-        else:
-            if ImageTag:
-                Params["tag"] = ImageTag
-
-            _, Header, Payload = self.http.request("GET", f"Items/{Id}/Images/{ImageType}/{ImageIndex}", Params, {}, True, "", None, "")
-
-        if 'content-type' in Header:
-            ContentType = Header['content-type']
-
-            if ContentType == "image/jpeg":
-                FileExtension = "jpg"
-            elif ContentType == "image/png":
-                FileExtension = "png"
-            elif ContentType == "image/gif":
-                FileExtension = "gif"
-            elif ContentType == "image/webp":
-                FileExtension = "webp"
-            elif ContentType == "image/apng":
-                FileExtension = "apng"
-            elif ContentType == "image/avif":
-                FileExtension = "avif"
-            elif ContentType == "image/svg+xml":
-                FileExtension = "svg"
-            else:
-                FileExtension = "ukn"
-        else:
-            FileExtension = "ukn"
-            ContentType = "image/unknown"
-
-        return Payload, ContentType, FileExtension
 
     def get_device(self):
         _, _, Payload = self.http.request("GET", "Sessions", {'DeviceId': self.ServerData['DeviceId']}, {}, False, "", None, "")
         return Payload
 
-    def get_active_sessions(self):
-        _, _, Payload = self.http.request("GET", "Sessions", {}, {}, False, "", None, "")
-        return Payload
-
-    def send_text_msg(self, SessionId, Header, Text, Priority):
-        self.http.Queues["ASYNC"].put((("POST", f"Sessions/{SessionId}/Message", {'Header': f"{Header}", 'Text': f"{Text}"}, Priority),))
-
-    def send_play(self, SessionId, ItemId, PlayCommand, StartPositionTicks, Priority, StartIndex=0):
-        self.http.Queues["ASYNC"].put((("POST", f"Sessions/{SessionId}/Playing", {'ItemIds': f"{ItemId}", 'StartIndex': StartIndex, 'StartPositionTicks': f"{StartPositionTicks}", 'PlayCommand': f"{PlayCommand}"}, Priority),))
-
-    def send_pause(self, SessionId, Priority):
-        self.http.Queues["ASYNC"].put((("POST", f"Sessions/{SessionId}/Playing/Pause", {}, Priority),))
-
-
-    def send_unpause(self, SessionId, Priority):
-        self.http.Queues["ASYNC"].put((("POST", f"Sessions/{SessionId}/Playing/Unpause", {}, Priority),))
-
-    def send_nexttrack(self, SessionId, Priority):
-        self.http.Queues["ASYNC"].put((("POST", f"Sessions/{SessionId}/Playing/NextTrack", {}, Priority),))
-
-    def send_previoustrack(self, SessionId, Priority):
-        self.http.Queues["ASYNC"].put((("POST", f"Sessions/{SessionId}/Playing/PreviousTrack", {}, Priority),))
-
-    def send_seek(self, SessionId, Position, Priority):
-        self.http.Queues["ASYNC"].put((("POST", f"Sessions/{SessionId}/Playing/Seek", {'SeekPositionTicks': Position}, Priority),))
-
-    def send_stop(self, SessionId, Priority):
-        self.http.Queues["ASYNC"].put((("POST", f"Sessions/{SessionId}/Playing/Stop", {}, Priority),))
-
-    def get_channels(self):
-        _, _, Payload = self.http.request("GET", "LiveTv/Channels", {'UserId': self.ServerData['UserId'], 'EnableImages': True, 'EnableUserData': True, 'Fields': self.get_Fields("tvchannel", False, True, True)}, {}, False, "", None, "")
-
-        if 'Items' in Payload:
-            return Payload['Items']
-
-        return []
-
-    def get_PlaybackInfo(self, Id):
-        _, _, Payload = self.http.request("POST", f"Items/{Id}/PlaybackInfo", {'UserId': self.ServerData['UserId']}, {}, False, "", None, "")
-
-        if 'MediaSources' in Payload and Payload['MediaSources']:
-            return Payload['MediaSources']
-
-        return []
-
-    def get_specialfeatures(self, Id):
-        _, _, Payload = self.http.request("GET", f"Users/{self.ServerData['UserId']}/Items/{Id}/SpecialFeatures", {'Fields': self.get_Fields("video", False, False, True), 'EnableTotalRecordCount': False}, {}, False, "", None, "")
-        return Payload
-
-    def get_intros(self, Id):
-        _, _, Payload = self.http.request("GET", f"Users/{self.ServerData['UserId']}/Items/{Id}/Intros", {'Fields': self.get_Fields("trailer", False, True, False), 'EnableTotalRecordCount': False, "EnableUserData": False}, {}, False, "", None, "")
-        return Payload
 
     def get_additional_parts(self, Id):
         _, _, Payload = self.http.request("GET", f"Videos/{Id}/AdditionalParts", {'Fields': "Path,MediaSources"}, {}, False, "", None, "")
         return Payload
 
-    def get_local_trailers(self, Id):
-        _, _, Payload = self.http.request("GET", f"Users/{self.ServerData['UserId']}/Items/{Id}/LocalTrailers", {'Fields': self.get_Fields("trailer", False, True, False), 'EnableTotalRecordCount': False, "EnableUserData": False}, {}, False, "", None, "")
-        return Payload
-
-    def get_themes(self, Id):
-        _, _, Payload = self.http.request("GET", f"Items/{Id}/ThemeMedia", {'Fields': "Path,MediaSources,MediaStreams,ParentId,PresentationUniqueKey", 'InheritFromParent': True, 'EnableThemeSongs': True, 'EnableThemeVideos': True, 'EnableTotalRecordCount': False}, {}, False, "", None, "")
-        return Payload
-
-    def get_similar(self, Id): # more like this
-        _, _, Payload = self.http.request("GET", f"Items/{Id}/Similar", {'EnableTotalRecordCount': False, 'UserId': self.ServerData['UserId'], "Limit": utils.maxnodeitems, 'Fields': self.get_Fields("all", False, True, True)}, {}, False, "", None, "")
-        embydb = dbio.DBOpenRO(self.ServerData['ServerId'], "get_similar")
-        videodb = dbio.DBOpenRO("video", "get_similar")
-        musicdb = dbio.DBOpenRO("music", "get_similar")
-        SimilarItems = []
-
-        if 'Items' in Payload:
-            for Item in Payload['Items']:
-                KodiItem = self.get_ListItem(Item, 0, embydb, videodb, musicdb)
-
-                if KodiItem:
-                    SimilarItems.append(KodiItem) # {"ListItem": ListItem, "Path": KodiItem[0]['path'], "IsFolder": IsFolder, "Type": KodiItem[1]}
-                else:
-                    SimilarItems.append(Item)
-
-        dbio.DBCloseRO("video", "get_similar")
-        dbio.DBCloseRO("music", "get_similar")
-        dbio.DBCloseRO(self.ServerData['ServerId'], "get_similar")
-        return SimilarItems
 
     def get_sync_queue(self, date):
         _, _, Payload = self.http.request("GET", f"Emby.Kodi.SyncQueue/{self.ServerData['UserId']}/GetItems", {'LastUpdateDT': date}, {}, False, "", None, "")
@@ -889,13 +637,6 @@ class API:
     def set_progress(self, Id, Progress, PlayCount):
         self.http.Queues["ASYNC"].put((("POST", f"Users/{self.ServerData['UserId']}/Items/{Id}/UserData", {"PlaybackPositionTicks": Progress, "PlayCount": PlayCount, "Played": bool(PlayCount)}, False),))
 
-    def set_progress_upsync(self, Id, PlaybackPositionTicks, PlayCount, LastPlayedDate):
-        Params = {"PlaybackPositionTicks": PlaybackPositionTicks, "LastPlayedDate": LastPlayedDate}
-
-        if PlayCount and PlayCount != -1:
-            Params.update({"PlayCount": PlayCount, "Played": bool(PlayCount)})
-
-        self.http.Queues["ASYNC"].put((("POST", f"Users/{self.ServerData['UserId']}/Items/{Id}/UserData", Params, False),))
 
     def set_played(self, Id, PlayCount):
         if PlayCount:
@@ -913,7 +654,7 @@ class API:
             self.http.Queues["ASYNC"].put((("DELETE", f"Users/{self.ServerData['UserId']}/FavoriteItems/{Id}", {}, False),))
 
     def post_capabilities(self):
-        self.http.request("POST", "Sessions/Capabilities/Full", {'Id': self.EmbySession[0]['Id'], 'SupportsRemoteControl': True, "QueueableMediaTypes": ["Audio", "Video", "Photo"], 'PlayableMediaTypes': ["Audio", "Video", "Photo"], 'SupportsMediaControl': True, 'SupportsSync': True, 'SupportedCommands': ["MoveUp", "MoveDown", "MoveLeft", "MoveRight", "Select", "Back", "ToggleContextMenu", "ToggleFullscreen", "ToggleOsdMenu", "GoHome", "PageUp", "NextLetter", "GoToSearch", "GoToSettings", "PageDown", "PreviousLetter", "TakeScreenshot", "VolumeUp", "VolumeDown", "ToggleMute", "SendString", "DisplayMessage", "SetAudioStreamIndex", "SetSubtitleStreamIndex", "SetRepeatMode", "SetShuffle", "SetPlaybackRate", "Mute", "Unmute", "SetVolume", "MovePlaylistItem", "RemoveFromPlaylist", "SetCurrentPlaylistItem", "ToggleStats", "PlayTrailers", "Pause", "Unpause", "Play", "Playstate", "PlayNext", "PlayMediaSource", "ChannelDown", "ChannelUp", "DisplayContent"], 'IconUrl': "https://raw.githubusercontent.com/MediaBrowser/plugin.video.emby/master/kodi_icon.png"}, {}, False, "", None, "")
+        self.http.request("POST", "Sessions/Capabilities/Full", {'Id': self.EmbySession[0]['Id'], 'SupportsRemoteControl': True, "QueueableMediaTypes": ["Audio", "Video"], 'PlayableMediaTypes': ["Audio", "Video"], 'SupportsMediaControl': True, 'SupportsSync': True, 'SupportedCommands': ["MoveUp", "MoveDown", "MoveLeft", "MoveRight", "Select", "Back", "ToggleContextMenu", "ToggleFullscreen", "ToggleOsdMenu", "GoHome", "PageUp", "NextLetter", "GoToSearch", "GoToSettings", "PageDown", "PreviousLetter", "TakeScreenshot", "VolumeUp", "VolumeDown", "ToggleMute", "SendString", "DisplayMessage", "SetAudioStreamIndex", "SetSubtitleStreamIndex", "SetRepeatMode", "SetShuffle", "SetPlaybackRate", "Mute", "Unmute", "SetVolume", "MovePlaylistItem", "RemoveFromPlaylist", "SetCurrentPlaylistItem", "ToggleStats", "Pause", "Unpause", "Play", "Playstate", "PlayNext", "PlayMediaSource", "DisplayContent"], 'IconUrl': "https://raw.githubusercontent.com/MediaBrowser/plugin.video.emby/master/kodi_icon.png"}, {}, False, "", None, "")
 
     def session_add_user(self, session_id, user_id, option):
         if option:
@@ -938,24 +679,15 @@ class API:
     def session_logout(self):
         self.http.request("POST", "Sessions/Logout", {}, {}, False, "", None, "")
 
-    def delete_item(self, Id):
-        self.http.Queues["ASYNC"].put((("DELETE", f"Items/{Id}", {}, False),))
 
     def get_publicinfo(self):
         _, _, Payload = self.http.request("GET", "system/info/public", {}, {}, False, "", None, "")
         return Payload
 
-    def get_exchange(self):
-        _, _, Payload = self.http.request("GET", "Connect/Exchange", {'ConnectUserId': self.ServerData['EmbyConnectUserId']}, {'X-Emby-Token': self.ServerData['EmbyConnectExchangeToken']}, False, "", None, "")
-        return Payload
 
     def get_authbyname(self, Username, Password):
         _, _, Payload = self.http.request("POST", "Users/AuthenticateByName", {'username': Username, 'pw': Password or ""}, {}, False, "", None, "")
         return Payload
-
-    def get_stream_statuscode(self, Id, MediaSourceId):
-        StatusCode, _, _ = self.http.request("HEAD", f"videos/{Id}/stream", {'static': True, 'MediaSourceId': MediaSourceId, 'DeviceId': self.ServerData['DeviceId']}, {}, False, "", None, "")
-        return StatusCode
 
     def get_Subtitle_Binary(self, Id, MediaSourceId, SubtitleIndex, SubtitleFormat):
         _, _, Payload = self.http.request("GET", f"videos/{Id}/{MediaSourceId}/Subtitles/{SubtitleIndex}/stream.{SubtitleFormat}", {}, {}, True, "", None, "")
@@ -969,22 +701,18 @@ class API:
         _, _, Payload = self.http.request("GET", f"service/servers?userId={self.ServerData['EmbyConnectUserId']}", {}, {'X-Connect-UserToken': self.ServerData['EmbyConnectAccessToken'], 'X-Application': f"{utils.addon_name}/{utils.addon_version}"}, False, "https://connect.emby.media:443", None, "")
         return Payload
 
-    def get_m3u8(self, Path, EmbyId):
-        _, _, MainM3U8 = self.http.request("GET", Path.replace(f"{self.ServerData['ServerUrl']}/emby/" , ""), {}, {}, True, "", None, "")
-        return MainM3U8.decode('utf-8').replace("hls1/main/", f"{self.ServerData['ServerUrl']}/emby/videos/{EmbyId}/hls1/main/").encode()
-
     def get_Fields(self, MediaType, Basic, Dynamic, UserData):
         if not Basic:
             Fields = EmbyFields[MediaType.lower()].copy()
 
-            #Dynamic list query, remove fields to improve performance
+            if not Dynamic:
+                if MediaType.lower() != "series" and "Studios" in Fields:
+                    Fields.remove("Studios")
+
+            # Playback metadata used by remote playback and generated ListItems
             if Dynamic:
                 if MediaType in ("Series", "Season"):
                     Fields += ["RecursiveItemCount", "ChildCount"]
-
-                for DynamicListsRemoveField in self.DynamicListsRemoveFields:
-                    if DynamicListsRemoveField in Fields:
-                        Fields.remove(DynamicListsRemoveField)
 
             if not UserData:
                 if "UserDataPlayCount" in Fields:
@@ -998,176 +726,6 @@ class API:
             Fields = None
 
         return Fields
-
-    def get_upcoming(self, ParentId):
-        _, _, Payload = self.http.request("GET", "Shows/Upcoming", {'ParentId': ParentId, 'Fields': self.get_Fields("episode", True, True, False), 'EnableImages': True}, {}, False, "", None, "")
-
-        if 'Items' in Payload:
-            return Payload['Items']
-
-        return []
-
-    def get_NextUp(self, ParentId):
-        _, _, Payload = self.http.request("GET", "Shows/NextUp", {'UserId': self.ServerData['UserId'], 'ParentId': ParentId, 'Fields': self.get_Fields("episode", False, True, True), 'EnableImages': True, 'EnableUserData': True, 'LegacyNextUp': True}, {}, False, "", None, "")
-        embydb = dbio.DBOpenRO(self.ServerData['ServerId'], "get_NextUp")
-        videodb = dbio.DBOpenRO("video", "get_NextUp")
-        NextUpItems = []
-
-        if 'Items' in Payload:
-            for Item in Payload['Items']:
-                KodiItem = self.get_ListItem(Item, 0, embydb, videodb, None)
-
-                if KodiItem:
-                    NextUpItems.append(KodiItem) # {"ListItem": ListItem, "Path": KodiItem[0]['path'], "IsFolder": IsFolder, "Type": KodiItem[1]}
-                else:
-                    NextUpItems.append(Item)
-
-        dbio.DBCloseRO("video", "get_NextUp")
-        dbio.DBCloseRO(self.ServerData['ServerId'], "get_NextUp")
-        return NextUpItems
-
-    def get_ListItem(self, BasicItem, LibraryId, embydb, videodb, musicdb):
-        if 'Id' not in BasicItem:
-            return {}
-
-        # Load Item from cache
-        ItemCache = cache.get_ItemByEmbyId(BasicItem['Id'], self.ServerData['ServerId'])
-
-        if ItemCache:
-            return ItemCache
-
-        if BasicItem['Type'] in ("Folder", "PhotoAlbum", "Photo", "Trailer"):
-            Item = embydb.get_ItemJson(BasicItem['Id'], BasicItem['Type'])
-
-            if not Item:
-                return {}
-
-            Item = json.loads(Item)
-            listitem.set_ListItem(Item, self.ServerData['ServerId'])
-            BasicItem['IsFolder'] = BasicItem['Type'] in ("Folder", "PhotoAlbum")
-            return Item
-
-        KodiDB = ""
-        MediaSources = []
-        isAudio = BasicItem['Type'] in ("MusicArtist", "MusicAlbum", "Audio")
-
-        if isAudio and not musicdb:
-            return {}
-
-        if isAudio and LibraryId != "0":
-            KodiId, KodiDB = embydb.get_KodiId_by_EmbyId_and_LibraryId(BasicItem['Id'], BasicItem['Type'], LibraryId, self.LibrarySyncedKodiDBs)
-        else:
-            KodiId, _, MediaSources = embydb.get_metadata_by_EmbyId_EmbyType(BasicItem['Id'], BasicItem['Type'])
-
-        if KodiId:
-            if BasicItem['Type'] in ("Movie", "Video"):
-                KodiItem = (videodb.get_movie_metadata_for_listitem(KodiId, None), BasicItem['Type'])
-            elif BasicItem['Type'] == "Series":
-                KodiItem = (videodb.get_tvshows_metadata_for_listitem(KodiId), BasicItem['Type'])
-            elif BasicItem['Type'] == "Season":
-                KodiItem = (videodb.get_season_metadata_for_listitem(KodiId), BasicItem['Type'])
-            elif BasicItem['Type'] == "Episode":
-                KodiItem = (videodb.get_episode_metadata_for_listitem(KodiId, None), BasicItem['Type'])
-            elif BasicItem['Type'] == "MusicVideo":
-                KodiItem = (videodb.get_musicvideos_metadata_for_listitem(KodiId, None), BasicItem['Type'])
-            elif BasicItem['Type'] == "MusicArtist":
-                if KodiDB == "music":
-                    KodiItem = (musicdb.get_artist_metadata_for_listitem(KodiId), BasicItem['Type'])
-                else:
-                    KodiItem = (None, BasicItem['Type'])
-            elif BasicItem['Type'] == "MusicAlbum":
-                KodiItem = (musicdb.get_album_metadata_for_listitem(KodiId), BasicItem['Type'])
-            elif BasicItem['Type'] == "Audio":
-                KodiItem = (musicdb.get_song_metadata_for_listitem(KodiId), BasicItem['Type'])
-            else:
-                KodiItem = (None, BasicItem['Type'])
-
-            if KodiItem[0]:
-                BasicItem['MediaSources'] = MediaSources
-                BasicItem.update(KodiItem[0])
-                listitem.set_ListItem_from_Kodi_database(BasicItem, "")
-                return BasicItem
-
-        return {}
-
-def get_Limit(MediaType):
-    if not MediaType:
-        xbmc.log("EMBY.emby.api: Invalid content, mediatype not found", 3) # LOGERROR
-        return 5000
-
-    Type = MediaType.lower()
-
-    if Type == "musicartist":
-        return utils.MusicartistPaging
-
-    if Type == "musicalbum":
-        return utils.MusicalbumPaging
-
-    if Type == "audio":
-        return utils.AudioPaging
-
-    if Type == "movie":
-        return utils.MoviePaging
-
-    if Type == "boxset":
-        return utils.BoxsetPaging
-
-    if Type == "series":
-        return utils.SeriesPaging
-
-    if Type == "season":
-        return utils.SeasonPaging
-
-    if Type == "episode":
-        return utils.EpisodePaging
-
-    if Type == "musicvideo":
-        return utils.MusicvideoPaging
-
-    if Type == "video":
-        return utils.VideoPaging
-
-    if Type == "photo":
-        return utils.PhotoPaging
-
-    if Type == "photoalbum":
-        return utils.PhotoalbumPaging
-
-    if Type == "playlist":
-        return utils.PlaylistPaging
-
-    if Type == "channels":
-        return utils.ChannelsPaging
-
-    if Type == "folder":
-        return utils.FolderPaging
-
-    if Type == "livetv":
-        return utils.LiveTVPaging
-
-    if Type == "trailer":
-        return utils.TrailerPaging
-
-    if Type == "musicgenre":
-        return utils.MusicgenrePaging
-
-    if Type == "person":
-        return utils.PersonPaging
-
-    if Type == "tag":
-        return utils.TagPaging
-
-    if Type == "studio":
-        return utils.StudioPaging
-
-    if Type == "genre":
-        return utils.GenrePaging
-
-    if Type == "all":
-        return utils.AllPaging
-
-    xbmc.log(f"EMBY.emby.api: Invalid content: {MediaType}", 3) # LOGERROR
-    return 5000
 
 def update_sessioninfo(EmbySessionInfo, EventName, PlaylistKodi, PlaylistEmby, PlaylistPosition):
     # Build PlayingQueue

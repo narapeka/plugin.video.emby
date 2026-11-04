@@ -21,20 +21,30 @@ if not Param:
     if webservice.start():
         import hooks.monitor
         hooks.monitor.StartUp()
-elif len(Param) == 1 or Param[1]:
+else:
     import socket
+
+    if Param[0] == "multiversion" and hasattr(sys, "listitem"):
+        from urllib.parse import quote
+
+        Path = sys.listitem.getVideoInfoTag().getFilenameAndPath() or sys.listitem.getPath()
+        Param.append(quote(Path, safe="/:"))
+
     Argv = ';'.join(["service"] + Param)
+    if Param[0] == "multiversion" and len(Param) > 1:
+        Argv += "\n"
     DataSend = f"EVENT {Argv}".encode('utf-8')
     Finished = False
 
     for _ in range(60):  # 60 seconds timeout
+        sock = None
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             sock.settimeout(0.1)
             sock.connect(('127.0.0.1', 57342))
-            sock.send(DataSend)
+            sock.sendall(DataSend)
 
             while True:
                 try:
@@ -58,7 +68,8 @@ elif len(Param) == 1 or Param[1]:
             if Finished:
                 break
         except:
-            sock.close()
+            if sock:
+                sock.close()
 
             if sleep():
                 break

@@ -1,8 +1,10 @@
+import sqlite3
 import threading
+from urllib.parse import parse_qs, urlsplit
 import xbmc
 import xbmcvfs
 from helper import utils
-from core import movies, videos, musicvideo, boxsets, genre, musicgenre, musicartist, musicalbum, audio, tag, person, studio, playlist, series, season, episode, common
+from core import movies, videos, musicvideo, boxsets, musicartist, musicalbum, audio, playlist, series, season, episode, common
 from database import dbio
 
 KodiFavFile = "special://profile/favourites.xml"
@@ -12,7 +14,6 @@ FavoriteUpdateLock = threading.Lock()
 
 def monitor_Favorites():
     global FavoriteUpdatedByEmby
-    if utils.DebugLog: xbmc.log("EMBY.hooks.favorites (DEBUG): THREAD: --->[ Kodi favorites ]", 1) # LOGDEBUG
     FavoriteUpdatedByEmby = False
     FavoritesCached = get_Favorites()
     FavoriteTimestamp = 0
@@ -20,7 +21,6 @@ def monitor_Favorites():
 
     while True:
         if utils.sleep(0.5):
-            if utils.DebugLog: xbmc.log("EMBY.hooks.favorites (DEBUG): THREAD: ---<[ Kodi favorites ]", 1) # LOGDEBUG
             return
 
         if not FavFileExits and xbmcvfs.exists(KodiFavFile):
@@ -59,8 +59,6 @@ def monitor_Favorites():
                     if FavoriteCurrent not in FavoritesCached["Favorites"]:
                         FavoritesAdded.append(FavoriteCurrent)
 
-                xbmc.log("EMBY.hooks.favorites: Kodi favorites changed", 1) # LOGINFO
-
                 for Index, FavoritesChanged in enumerate((FavoritesRemoved, FavoritesAdded)):
                     isAdded = bool(Index)
 
@@ -75,7 +73,6 @@ def monitor_Favorites():
                         Path, isPath = get_path(FavoriteChanged)
 
                         if not Path:
-                            if utils.DebugLog: xbmc.log(f"EMBY.hooks.favorites (DEBUG): Path not found: {FavoriteChanged}", 1) # LOGDEBUG
                             continue
 
                         # get metadata
@@ -98,25 +95,13 @@ def monitor_Favorites():
                             EmbyType = "BoxSet"
                             ContentType = "video"
                         elif Path.startswith("videodb://movies/genres/") or Path.startswith("videodb://tvshows/genres/"):
-                            Temp = Path.split("/")
-                            KodiItemId = Temp[4]
-                            EmbyType = "Genre"
-                            ContentType = "video"
+                            continue
                         elif Path.startswith("videodb://movies/actors/") or Path.startswith("videodb://tvshows/actors/") or Path.startswith("videodb://musicvideos/actors/"):
-                            Temp = Path.split("/")
-                            KodiItemId = Temp[4]
-                            EmbyType = "Person"
-                            ContentType = "video"
+                            continue
                         elif Path.startswith("videodb://movies/tags/") or Path.startswith("videodb://tvshows/tags/") or Path.startswith("videodb://musicvideos/tags/"):
-                            Temp = Path.split("/")
-                            KodiItemId = Temp[4]
-                            EmbyType = "Tag"
-                            ContentType = "video"
+                            continue
                         elif Path.startswith("videodb://movies/studios/") or Path.startswith("videodb://tvshows/studios/") or Path.startswith("videodb://musicvideos/studios/"):
-                            Temp = Path.split("/")
-                            KodiItemId = Temp[4]
-                            EmbyType = "Studio"
-                            ContentType = "video"
+                            continue
                         elif Path.startswith("special://profile/playlists/video/"):
                             Temp = Path.split("/")
                             KodiItemId = Temp[5][:-4]
@@ -127,26 +112,24 @@ def monitor_Favorites():
                             KodiItemId = Temp[5][:-4]
                             EmbyType = "Playlist"
                             ContentType = "music"
-                        elif Path.startswith("plugin://plugin.video.emby-next-gen/?mode=playlist&mediatype=video"):
-                            Temp = Path.split("id=")
-                            KodiItemId = Temp[-1]
+                        elif Path.startswith(("plugin://plugin.video.emby-next-gen/?mode=playlist&mediatype=video", "plugin://plugin.service.emby-next-gen/?mode=playlist&mediatype=video")):
+                            Params = parse_qs(urlsplit(Path).query)
+                            KodiItemId = Params.get("id", [""])[0]
                             EmbyType = "Playlist"
                             ContentType = "video"
-                        elif Path.startswith("plugin://plugin.audio.emby-next-gen/?mode=playlist&mediatype=audio"):
-                            Temp = Path.split("id=")
-                            KodiItemId = Temp[-1]
+                            EmbyId = Params.get("playlistid", [""])[0]
+                            if EmbyId:
+                                ServerId = Params.get("server", [""])[0]
+                                if not EmbyId.isdecimal() or ServerId not in utils.EmbyServers:
+                                    continue
+                        elif Path.startswith(("plugin://plugin.audio.emby-next-gen/?mode=playlist&mediatype=audio", "plugin://plugin.service.emby-next-gen/?mode=playlist&mediatype=audio")):
+                            KodiItemId = parse_qs(urlsplit(Path).query).get("id", [""])[0]
                             EmbyType = "Playlist"
                             ContentType = "music"
                         elif Path.startswith("musicdb://genres/"):
-                            Temp = Path.split("/")
-                            KodiItemId = Temp[3]
-                            EmbyType = "MusicGenre"
-                            ContentType = "music"
+                            continue
                         elif Path.startswith("videodb://musicvideos/genres/"):
-                            Temp = Path.split("/")
-                            KodiItemId = Temp[4]
-                            EmbyType = "MusicGenre"
-                            ContentType = "video"
+                            continue
                         elif Path.startswith("videodb://musicvideos/artists/"):
                             Temp = Path.split("/")
                             KodiItemId = Temp[4]
@@ -178,13 +161,13 @@ def monitor_Favorites():
                         ValidImage = ""
 
                         # get ServerId by thumbnail's metadata
-                        if FavoriteChanged.get("thumbnail", "").startswith("http://127.0.0.1:57342/"): # by picure url metadata
+                        if not ServerId and FavoriteChanged.get("thumbnail", "").startswith("http://127.0.0.1:57342/"):
                             ValidImage = FavoriteChanged["thumbnail"]
                             FolderIds = ValidImage.split("/")
 
                             if len(FolderIds) >= 4:
                                 ServerId = FolderIds[4]
-                        elif FavoriteChanged.get("thumbnail", "").startswith("image://emby@dav%3A%2F%2F127.0.0.1%3A57342") or FavoriteChanged.get("thumbnail", "").startswith("image://epg@dav%3A%2F%2F127.0.0.1%3A57342"): # by picure url metadata
+                        elif not ServerId and FavoriteChanged.get("thumbnail", "").startswith(("image://emby@dav%3A%2F%2F127.0.0.1%3A57342", "image://epg@dav%3A%2F%2F127.0.0.1%3A57342")):
                             ValidImage = utils.image_url_decode(FavoriteChanged["thumbnail"])
                             FolderIds = ValidImage.split("/")
 
@@ -200,10 +183,9 @@ def monitor_Favorites():
                                     if len(MetaIds) >= 2:
                                         EmbyId = MetaIds[1] # get EmbyId by thumbnail's metadata
 
-                                        if isAdded:
-                                            embydb = dbio.DBOpenRO(ServerId, "Favorites change artwork (content)")
-                                            EmbyType = embydb.get_contenttype_by_id(EmbyId)
-                                            dbio.DBCloseRO(ServerId, "Favorites change artwork (content)")
+                                        embydb = dbio.DBOpenRO(ServerId, "Favorites change artwork (content)")
+                                        EmbyType = embydb.get_contenttype_by_id(EmbyId)
+                                        dbio.DBCloseRO(ServerId, "Favorites change artwork (content)")
                             else:
                                 if ServerId in utils.EmbyServers:
                                     embydb = dbio.DBOpenRO(ServerId, "Favorites subcontent metadata 1")
@@ -223,211 +205,27 @@ def monitor_Favorites():
                             dbio.DBCloseRO(ServerId, "Favorites subcontent metadata 3")
 
                         if not EmbyId:
-                            if utils.DebugLog: xbmc.log(f"EMBY.hooks.favorites (DEBUG): EmbyId not found: {FavoriteChanged}", 1) # LOGDEBUG
+                            continue
+
+                        if EmbyType not in utils.FavoriteTypes:
                             continue
 
                         if isAdded:
-                            delete_favorite(FavoriteChanged, FavoritesCurrent, None) # remove existing favorite record
+                            if not isPath and EmbyType == "MusicArtist":
+                                ImageUrlUpdated = ImageUrlFromDB or FavoriteChanged["thumbnail"]
+                                LibraryIds = common.get_Ids_MultiContent(LibraryIds)
+                                KodiItemIds = common.get_Ids_MultiContent(KodiItemIdFromDB)
 
-                            # Update image overlay
-                            if isPath:
-                                if EmbyType == "MusicVideo":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Musicvideo", "Musicvideos", EmbyId, ServerId, FavoriteChanged["thumbnail"]), "path": FavoriteChanged["path"]})
-                                elif EmbyType == "Episode":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Episode", "TV Shows", EmbyId, ServerId, FavoriteChanged["thumbnail"]), "path": FavoriteChanged["path"]})
-                                elif EmbyType == "Movie":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Movie", "Movies", EmbyId, ServerId, FavoriteChanged["thumbnail"]), "path": FavoriteChanged["path"]})
-                                elif EmbyType == "Video":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Video", "Movies", EmbyId, ServerId, FavoriteChanged["thumbnail"]), "path": FavoriteChanged["path"]})
-                                elif EmbyType == "Audio":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Song", "Songs", EmbyId, ServerId, FavoriteChanged["thumbnail"]), "path": FavoriteChanged["path"]})
-                                else:
-                                    if utils.DebugLog: xbmc.log(f"EMBY.hooks.favorites (DEBUG): EmbyType not found: {FavoriteChanged}", 1) # LOGDEBUG
-                                    continue
-                            else: # add additional existing favorite records for linked sub-content
-                                if ImageUrlFromDB:
-                                    ImageUrlUpdated = ImageUrlFromDB
-                                else:
-                                    ImageUrlUpdated = FavoriteChanged["thumbnail"]
+                                if KodiItemIds[0]:
+                                    for Index, KodiItemIdAudio in enumerate(KodiItemIds[0]):
+                                        if str(KodiItemId) != KodiItemIdAudio and LibraryIds[0][Index] in utils.EmbyServers[ServerId].library.LibrarySyncedContent and "Playlist" not in utils.EmbyServers[ServerId].library.LibrarySyncedContent[LibraryIds[0][Index]]: # Skip playlist subcontent, and KodiId is self
+                                            utils.FavoriteQueue.put((((ImageUrlUpdated or ""), True, f"musicdb://artists/{KodiItemIdAudio}/", FavoriteChanged["title"], "window", 10502),))
 
-                                if EmbyType == "MusicGenre" and ContentType == "music":
-                                    KodiItemIds = KodiItemIdFromDB.split(";")
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Genre", "Songs", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "music"})
-                                    videodb = dbio.DBOpenRO("video", "Favorites change musicgenre (subcontent)")
-                                    _, hasMusicVideos, _, _ = videodb.get_Genre_Name_hasMusicVideos_hasMovies_hasTVShows(KodiItemIds[1])
-                                    dbio.DBCloseRO("video", "Favorites change musicgenre (subcontent)")
+                                if KodiItemIds[1]:
+                                    for Index, KodiItemIdVideo in enumerate(KodiItemIds[1]):
+                                        if str(KodiItemId) != KodiItemIdVideo and LibraryIds[1][Index] in utils.EmbyServers[ServerId].library.LibrarySyncedContent and "Playlist" not in utils.EmbyServers[ServerId].library.LibrarySyncedContent[LibraryIds[1][Index]]: # Skip playlist subcontent
+                                            utils.FavoriteQueue.put((((ImageUrlUpdated or ""), True, f"videodb://musicvideos/artists/{KodiItemIdVideo}/", FavoriteChanged["title"], "window", 10025),))
 
-                                    if hasMusicVideos:
-                                        utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Genre", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://musicvideos/genres/{KodiItemIds[1]}/", FavoriteChanged["title"], "window", 10025),))
-                                elif EmbyType == "MusicGenre" and ContentType == "video":
-                                    KodiItemIds = KodiItemIdFromDB.split(";")
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Genre", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-                                    musicdb = dbio.DBOpenRO("music", "Favorites change musicgenre (subcontent)")
-                                    _, hasSongs = musicdb.get_Genre_Name_hasSongs(KodiItemIds[0])
-                                    dbio.DBCloseRO("music", "Favorites change musicgenre (subcontent)")
-
-                                    if hasSongs:
-                                        utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Genre", "Songs", EmbyId, ServerId, ImageUrlUpdated), True, f"musicdb://genres/{KodiItemIds[0]}/", FavoriteChanged["title"], "window", 10502),))
-                                elif EmbyType == "Tag":
-                                    videodb = dbio.DBOpenRO("video", "Favorites change tag (subcontent)")
-                                    _, hasMusicVideos, hasMovies, hasTVShows = videodb.get_Tag_Name(KodiItemId)
-                                    dbio.DBCloseRO("video", "Favorites change tag (subcontent)")
-                                    TagByMovie = Path.startswith("videodb://movies/tags/")
-                                    TagBySeries = Path.startswith("videodb://tvshows/tags/")
-
-                                    if TagByMovie:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Tag", "Movie", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasTVShows:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Tag", "TV Shows", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://tvshows/tags/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-
-                                        if hasMusicVideos:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Tag", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://musicvideos/tags/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-                                    elif TagBySeries:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Tag", "TV Show", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasMovies:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Tag", "Movies", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://movies/tags/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-
-                                        if hasMusicVideos:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Tag", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://musicvideos/tags/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-                                    else:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Tag", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasMovies:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Tag", "Movies", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://movies/tags/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-
-                                        if hasTVShows:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Tag", "TV Shows", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://tvshows/tags/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-
-                                    # collections assigned to tags -> utils.BoxSetsToTags
-                                    if str(EmbyId).startswith(utils.MappingIds['Tag']):
-                                        EmbySetId = str(EmbyId).replace(utils.MappingIds['Tag'], "")
-                                        embydb = dbio.DBOpenRO(ServerId, "Favorites subcontent metadata tag")
-                                        KodiItemId = embydb.get_KodiId_by_EmbyId_EmbyType(EmbySetId, "BoxSet")
-                                        dbio.DBCloseRO(ServerId, "Favorites subcontent metadata tag")
-                                        delete_favorite(None, FavoritesCurrent, f"videodb://movies/sets/{KodiItemId}/")
-                                        utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Boxset", "Set", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://movies/sets/{KodiItemId}/", FavoriteChanged["title"].replace(" (Collection)", ""), "window", 10025),))
-                                elif EmbyType == "BoxSet":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Boxset", "Set", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-                                    embydb = dbio.DBOpenRO(ServerId, "Favorites subcontent metadata boxset")
-                                    KodiItemId = embydb.get_KodiId_by_EmbyId_EmbyType(f"{utils.MappingIds['Tag']}{EmbyId}", "Tag")
-                                    dbio.DBCloseRO(ServerId, "Favorites subcontent metadata boxset")
-                                    videodb = dbio.DBOpenRO("video", "Favorites change boxset (subcontent)")
-                                    _, hasMusicVideos, hasMovies, hasTVShows = videodb.get_Tag_Name(KodiItemId)
-                                    dbio.DBCloseRO("video", "Favorites change boxset (subcontent)")
-
-                                    if hasMovies:
-                                        utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Tag", "Movies", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://movies/tags/{KodiItemId}/", f'{FavoriteChanged["title"]} (Collection)', "window", 10025),))
-
-                                    if hasTVShows:
-                                        utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Tag", "TV Shows", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://tvshows/tags/{KodiItemId}/", f'{FavoriteChanged["title"]} (Collection)', "window", 10025),))
-
-                                    if hasMusicVideos:
-                                        utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Tag", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://musicvideos/tags/{KodiItemId}/", f'{FavoriteChanged["title"]} (Collection)', "window", 10025),))
-                                elif EmbyType == "Studio":
-                                    StudioByMovie = Path.startswith("videodb://movies/studios/")
-                                    StudioByTVShow = Path.startswith("videodb://tvshows/studios/")
-                                    videodb = dbio.DBOpenRO("video", "Favorites change studio (subcontent)")
-                                    _, hasMusicVideos, hasMovies, hasTVShows = videodb.get_Studio_Name(KodiItemId)
-                                    dbio.DBCloseRO("video", "Favorites change studio (subcontent)")
-
-                                    if StudioByMovie:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Studio", "Movies", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasTVShows:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Studio", "TV Shows", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://tvshows/studios/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-
-                                        if hasMusicVideos:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Studio", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://musicvideos/studios/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-                                    elif StudioByTVShow:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Studio", "TV Shows", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasMovies:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Studio", "Movies", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://movies/studios/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-
-                                        if hasMusicVideos:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Studio", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://musicvideos/studios/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-                                    else:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Studio", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasMovies:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Studio", "Movies", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://movies/studios/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-
-                                        if hasTVShows:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Studio", "TV Shows", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://tvshows/studios/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-                                elif EmbyType == "Person":
-                                    PersonByMovie = Path.startswith("videodb://movies/actors/")
-                                    PersonByTVShow = Path.startswith("videodb://tvshows/actors/")
-                                    videodb = dbio.DBOpenRO("video", "Favorites change person (subcontent)")
-                                    _, _, hasMusicVideos, hasMovies, hasTVShows = videodb.get_People(KodiItemId)
-                                    dbio.DBCloseRO("video", "Favorites change person (subcontent)")
-
-                                    if PersonByMovie:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Actor", "Movies", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasTVShows:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Actor", "TV Shows", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://tvshows/actors/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-
-                                        if hasMusicVideos:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Artist", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://musicvideos/actors/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-                                    elif PersonByTVShow:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Actor", "TV Shows", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasMovies:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Actor", "Movies", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://movies/actors/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-
-                                        if hasMusicVideos:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Artist", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://musicvideos/actors/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-                                    else:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Artist", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasMovies:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Actor", "Movies", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://movies/actors/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-
-                                        if hasTVShows:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Actor", "TV Shows", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://tvshows/actors/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-                                elif EmbyType == "Genre":
-                                    GenreByMovie = Path.startswith("videodb://movies/genres/")
-                                    videodb = dbio.DBOpenRO("video", "Favorites change genre (subcontent)")
-                                    _, _, hasMovies, hasTVShows = videodb.get_Genre_Name_hasMusicVideos_hasMovies_hasTVShows(KodiItemId)
-                                    dbio.DBCloseRO("video", "Favorites change genre (subcontent)")
-
-                                    if GenreByMovie:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Genre", "Movies", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasTVShows:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Genre", "TV Shows", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://tvshows/genres/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-                                    else:
-                                        send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Genre", "TV Show", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-
-                                        if hasMovies:
-                                            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Genre", "Movies", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://movies/genres/{KodiItemId}/", FavoriteChanged["title"], "window", 10025),))
-                                elif EmbyType == "Series":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Series", "TV Show", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-                                elif EmbyType == "Season":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Season", "TV Show", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-                                elif EmbyType == "MusicArtist":
-                                    LibraryIds = common.get_Ids_MultiContent(LibraryIds)
-                                    KodiItemIds = common.get_Ids_MultiContent(KodiItemIdFromDB)
-
-                                    if KodiItemIds[0]:
-                                        for Index, KodiItemIdAudio in enumerate(KodiItemIds[0]):
-                                            if str(KodiItemId) != KodiItemIdAudio and LibraryIds[0][Index] in utils.EmbyServers[ServerId].library.LibrarySyncedContent and "Playlist" not in utils.EmbyServers[ServerId].library.LibrarySyncedContent[LibraryIds[0][Index]]: # Skip playlist subcontent, and KodiId is self
-                                                utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Artist", "Songs", EmbyId, ServerId, ImageUrlUpdated), True, f"musicdb://artists/{KodiItemIdAudio}/", FavoriteChanged["title"], "window", 10502),))
-
-                                    if KodiItemIds[1]:
-                                        for Index, KodiItemIdVideo in enumerate(KodiItemIds[1]):
-                                            if str(KodiItemId) != KodiItemIdVideo and LibraryIds[1][Index] in utils.EmbyServers[ServerId].library.LibrarySyncedContent and "Playlist" not in utils.EmbyServers[ServerId].library.LibrarySyncedContent[LibraryIds[1][Index]]: # Skip playlist subcontent
-                                                utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Artist", "Musicvideos", EmbyId, ServerId, ImageUrlUpdated), True, f"videodb://musicvideos/artists/{KodiItemIdVideo}/", FavoriteChanged["title"], "window", 10025),))
-
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Artist", "Songs", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "music"})
-                                elif EmbyType == "MusicAlbum":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Album", "Songs", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "music"})
-                                elif EmbyType == "Playlist" and ContentType == "video":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Playlist", "Video", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "videos"})
-                                elif EmbyType == "Playlist" and ContentType == "music":
-                                    send_favorite({"type": FavoriteChanged["type"], "title": FavoriteChanged["title"] , "thumbnail": common.set_Favorites_Artwork_Overlay("Playlist", "Audio", EmbyId, ServerId, ImageUrlUpdated), "windowparameter": FavoriteChanged["windowparameter"], "window": "music"})
                         else: # favorite removed
                             if not isPath:
                                 # remove additional existing favorite records for linked sub-content
@@ -445,63 +243,10 @@ def monitor_Favorites():
 
                                         for KodiItemIdVideo in KodiItemIdsVideo:
                                             delete_favorite(None, FavoritesCurrent, f"videodb://musicvideos/artists/{KodiItemIdVideo}/")
-                                elif EmbyType == "MusicGenre":
-                                    if KodiItemIdFromDB:
-                                        KodiIds = KodiItemIdFromDB
-                                    else:
-                                        embydb = dbio.DBOpenRO(ServerId, "Favorites subcontent metadata MusicGenre")
-                                        KodiIds = embydb.get_KodiId_by_EmbyId_EmbyType(EmbyId, "MusicGenre")
-                                        dbio.DBCloseRO(ServerId, "Favorites subcontent metadata MusicGenre")
-
-                                    if KodiIds:
-                                        KodiIds = KodiIds.split(";")
-
-                                        if KodiIds[0]:
-                                            delete_favorite(None, FavoritesCurrent, f"musicdb://genres/{KodiIds[0]}/")
-
-                                        if KodiIds[1]:
-                                            delete_favorite(None, FavoritesCurrent, f"videodb://musicvideos/genres/{KodiIds[1]}/")
-                                elif EmbyType == "Tag":
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://movies/tags/{KodiItemId}/")
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://musicvideos/tags/{KodiItemId}/")
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://tvshows/tags/{KodiItemId}/")
-
-                                    # collections assigned to tags -> utils.BoxSetsToTags
-                                    if str(EmbyId).startswith(utils.MappingIds['Tag']):
-                                        EmbySetId = str(EmbyId).replace(utils.MappingIds['Tag'], "")
-                                        embydb = dbio.DBOpenRO(ServerId, "Favorites subcontent metadata set")
-                                        KodiItemId = embydb.get_KodiId_by_EmbyId_EmbyType(EmbySetId, "BoxSet")
-                                        dbio.DBCloseRO(ServerId, "Favorites subcontent metadata set")
-                                        delete_favorite(None, FavoritesCurrent, f"videodb://movies/sets/{KodiItemId}/")
-                                elif EmbyType == "BoxSet":
-                                    # collections assigned to tags -> utils.BoxSetsToTags
-                                    embydb = dbio.DBOpenRO(ServerId, "Favorites subcontent metadata set")
-                                    KodiItemId = embydb.get_KodiId_by_EmbyId_EmbyType(f"{utils.MappingIds['Tag']}{EmbyId}", "Tag")
-                                    dbio.DBCloseRO(ServerId, "Favorites subcontent metadata set")
-
-                                    if KodiItemId:
-                                        delete_favorite(None, FavoritesCurrent, f"videodb://movies/tags/{KodiItemId}/")
-                                        delete_favorite(None, FavoritesCurrent, f"videodb://musicvideos/tags/{KodiItemId}/")
-                                        delete_favorite(None, FavoritesCurrent, f"videodb://tvshows/tags/{KodiItemId}/")
-                                elif EmbyType == "Studio":
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://movies/studios/{KodiItemId}/")
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://tvshows/studios/{KodiItemId}/")
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://musicvideos/studios/{KodiItemId}/")
-                                elif EmbyType == "Person":
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://movies/actors/{KodiItemId}/")
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://tvshows/actors/{KodiItemId}/")
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://musicvideos/actors/{KodiItemId}/")
-                                elif EmbyType == "Genre":
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://movies/genres/{KodiItemId}/")
-                                    delete_favorite(None, FavoritesCurrent, f"videodb://tvshows/genres/{KodiItemId}/")
 
                         # Update Emby favorites
                         if EmbyId:
-                            if str(EmbyId).startswith(utils.MappingIds['Tag']): # skip collections assigned to tags -> utils.BoxSetsToTags
-                                EmbyId = str(EmbyId).replace(utils.MappingIds['Tag'], "")
-
                             utils.ItemSkipUpdate.append(str(EmbyId))
-                            if utils.DebugLog: xbmc.log(f"EMBY.hooks.favorites (DEBUG): ItemSkipUpdate favorite update: {utils.ItemSkipUpdate}", 1) # LOGDEBUG
                             utils.EmbyServers[ServerId].API.favorite(EmbyId, isAdded)
 
             FavoritesCached = get_Favorites()
@@ -575,16 +320,19 @@ def get_existing_favorite(Favorite, Favorites, PathCheck):
         if Path in Favorites["Path"]:
             FoundInPath = True
             PathIndex = Favorites["Path"].index(Path)
-        elif PathFiltered in Favorites["Filtered"]:
+        elif "?mode=playlist&" not in Path and PathFiltered in Favorites["Filtered"]:
             FoundInPathFiltered = True
             PathIndex = Favorites["Filtered"].index(PathFiltered)
 
     return FoundInPath, FoundInPathFiltered, PathIndex, bool(Path)
 
-def send_favorite(Favorite):
+def send_favorite(Favorite, DuringReset=False):
     global FavoriteUpdatedByEmby
 
     with utils.SafeLock(FavoriteUpdateLock):
+        if utils.SystemShutdown and not DuringReset:
+            return
+
         FavoriteUpdatedByEmby = True
         FavoriteTitle = Favorite["title"].replace('"', '\\"')
 
@@ -594,14 +342,12 @@ def send_favorite(Favorite):
             utils.SendJson("Favourites.AddFavourite", f'{{"type":"{Favorite["type"]}", "title":"{FavoriteTitle}", "thumbnail":"{Favorite["thumbnail"]}", "windowparameter":"{Favorite["windowparameter"]}", "window":"{Favorite["window"]}"}}', False)
 
 def emby_change_Favorite(): # Threaded / queued
-    if utils.DebugLog: xbmc.log("EMBY.hooks.favorites (DEBUG): THREAD: --->[ Kodi favorites mods ]", 1) # LOGDEBUG
 
     while True:
         utils.sleep(0.5)
         Favorites = utils.FavoriteQueue.getall()
 
         if "QUIT" in Favorites:
-            if utils.DebugLog: xbmc.log("EMBY.hooks.favorites (DEBUG): THREAD: ---<[ Kodi favorites mods ]", 1) # LOGDEBUG
             return
 
         if not utils.SyncFavorites:
@@ -627,7 +373,6 @@ def emby_change_Favorite(): # Threaded / queued
             FoundInPath, FoundInPathFiltered, FoundIndex, isValid = get_existing_favorite(None, FavoritesCurrent, Favorite[2])
 
             if not isValid:
-                if utils.DebugLog: xbmc.log(f"EMBY.hooks.favorites (DEBUG): Invalid item: {Favorite}", 1) # LOGDEBUG
                 continue
 
             if Favorite[1]:
@@ -652,6 +397,50 @@ def emby_change_Favorite(): # Threaded / queued
                 if FoundInPath or FoundInPathFiltered: # is not favorite and exist
                     send_favorite(FavoritesCurrent["Favorites"][FoundIndex]) # remove existing favorite record
 
+def clear_reset_favorites(ServerIds):
+    Favorites = get_Favorites()
+    Mapped = {}
+    NativePaths = (
+        ("videodb://tvshows/titles/", "Series", "video"),
+        ("videodb://movies/sets/", "BoxSet", "video"),
+        ("videodb://musicvideos/artists/", "MusicArtist", "video"),
+        ("musicdb://artists/", "MusicArtist", "music"),
+        ("musicdb://albums/", "MusicAlbum", "music"),
+    )
+
+    for Favorite, Path, Image in zip(Favorites["Favorites"], Favorites["Path"], Favorites["ImageUrl"]):
+        Path = filter_path(Path)
+        if (Path.startswith((utils.AddonModePath, "stack://" + utils.AddonModePath, "plugin://plugin.service.emby-next-gen/", "library://video/emby_", "library://music/emby_"))
+                or Image.startswith((utils.AddonModePath, "image://emby@dav%3A%2F%2F127.0.0.1%3A57342", "image://epg@dav%3A%2F%2F127.0.0.1%3A57342"))
+                or (Path.startswith((utils.PlaylistPathMusic, utils.PlaylistPathVideo)) and utils.is_emby_playlist(Path.rsplit("/", 1)[-1]))):
+            send_favorite({**Favorite, "thumbnail": Image}, DuringReset=True)
+            continue
+
+        for Prefix, EmbyType, ContentType in NativePaths:
+            if Path.startswith(Prefix):
+                KodiId = Path[len(Prefix):].split("/", 1)[0]
+                if KodiId.isdecimal():
+                    Mapped[Path] = (KodiId, EmbyType, ContentType, {**Favorite, "thumbnail": Image})
+                break
+
+    # Native Kodi URLs for Gen albums, artists, series and sets can lack an Emby thumbnail.
+    for ServerId in ServerIds:
+        if not Mapped:
+            break
+
+        try:
+            EmbyDB = dbio.DBOpenRO(ServerId, "reset_favorites")
+            try:
+                for Path, (KodiId, EmbyType, ContentType, Favorite) in list(Mapped.items()):
+                    if EmbyDB.get_EmbyId_KodiId_ImageUrl_by_KodiId_EmbyType(KodiId, EmbyType, ContentType)[0]:
+                        send_favorite(Favorite, DuringReset=True)
+                        del Mapped[Path]
+            finally:
+                dbio.DBCloseRO(ServerId, "reset_favorites")
+        except sqlite3.DatabaseError as Error:
+            xbmc.log(f"EMBY.hooks.favorites: Cannot identify native favorites from {ServerId}: {Error}", xbmc.LOGWARNING)
+
+
 def set_Favorites(Enabled):
     if not Enabled:
         FavoritesCurrent = get_Favorites()
@@ -671,11 +460,6 @@ def set_Favorites(Enabled):
             update_Season(EmbyServer.library)
             update_Playlist(EmbyServer.library)
             update_BoxSet(EmbyServer.library)
-            update_Genre(EmbyServer.library)
-            update_Studio(EmbyServer.library)
-            update_Tag(EmbyServer.library)
-            update_MusicGenre(EmbyServer.library)
-            update_Person(EmbyServer.library)
             update_MusicArtist(EmbyServer.library)
 
 def update_Audio(Library):
@@ -814,17 +598,18 @@ def update_Season(Library):
 
 def update_Playlist(Library):
     embydb = dbio.DBOpenRO(Library.ServerData['ServerId'], "update_Playlist")
-    PlaylistInfo = embydb.get_FavoriteInfos("Playlist") # EmbyFavourite, KodiId, EmbyArtwork, EmbyId
+    Playlists = embydb.get_Records_by_EmbyType("Playlist")
     dbio.DBCloseRO(Library.ServerData['ServerId'], "update_Playlist")
     utils.create_ProgressBar("update_Playlist", utils.Translate(33199), utils.Translate(33851))
     PlaylistObject = playlist.Playlist(Library, {})
-    RecordsPercent = len(PlaylistInfo) / 100
+    RecordsPercent = len(Playlists) / 100
 
-    for Index, PlaylistInfo in enumerate(PlaylistInfo, 1):
-        if PlaylistInfo[0]:
-            PlaylistObject.set_favorite(PlaylistInfo[0], {"KodiItemId": PlaylistInfo[1], "Id": PlaylistInfo[3], "KodiArtwork": {'favourite': PlaylistInfo[2]}})
+    for Index, (ItemId, KodiId, IsFavorite, Artwork, LinkedIds, Name) in enumerate(Playlists, 1):
+        if IsFavorite:
+            PlaylistObject.set_favorite(True, {"Id": ItemId, "KodiItemId": KodiId, "EmbyLinkedId": LinkedIds,
+                                               "Name": Name, "KodiArtwork": {"favourite": Artwork or ""}})
 
-        utils.update_ProgressBar("update_Playlist", Index / RecordsPercent, utils.Translate(33851), str(PlaylistInfo[1]))
+        utils.update_ProgressBar("update_Playlist", Index / RecordsPercent, utils.Translate(33851), str(KodiId))
 
     del PlaylistObject
     utils.close_ProgressBar("update_Playlist")
@@ -867,101 +652,6 @@ def update_Movie(Library):
     dbio.DBCloseRO("video", "update_Movie")
     utils.close_ProgressBar("update_Movie")
 
-def update_Genre(Library):
-    embydb = dbio.DBOpenRO(Library.ServerData['ServerId'], "update_Genre")
-    GenresInfos = embydb.get_FavoriteInfos("Genre") # EmbyFavourite, KodiId, EmbyArtwork, EmbyId
-    dbio.DBCloseRO(Library.ServerData['ServerId'], "update_Genre")
-    SQLs = {"video": dbio.DBOpenRO("video", "update_Genre")}
-    utils.create_ProgressBar("update_Genre", utils.Translate(33199), utils.Translate(33854))
-    GenreObject = genre.Genre(Library, SQLs)
-    RecordsPercent = len(GenresInfos) / 100
-
-    for Index, GenreInfo in enumerate(GenresInfos, 1):
-        if GenreInfo[0]:
-            GenreObject.set_favorite(GenreInfo[0], {"KodiItemId": GenreInfo[1], "Id": GenreInfo[3], "KodiArtwork": {'favourite': GenreInfo[2]}})
-
-        utils.update_ProgressBar("update_Genre", Index / RecordsPercent, utils.Translate(33854), str(GenreInfo[1]))
-
-    del GenreObject
-    dbio.DBCloseRO("video", "update_Genre")
-    utils.close_ProgressBar("update_Genre")
-
-def update_Studio(Library):
-    embydb = dbio.DBOpenRO(Library.ServerData['ServerId'], "update_Studio")
-    StudioInfos = embydb.get_FavoriteInfos("Studio") # EmbyFavourite, KodiId, EmbyArtwork, EmbyId
-    dbio.DBCloseRO(Library.ServerData['ServerId'], "update_Studio")
-    SQLs = {"video": dbio.DBOpenRO("video", "update_Studio")}
-    utils.create_ProgressBar("update_Studio", utils.Translate(33199), utils.Translate(33855))
-    StudioObject = studio.Studio(Library, SQLs)
-    RecordsPercent = len(StudioInfos) / 100
-
-    for Index, StudioInfo in enumerate(StudioInfos, 1):
-        if StudioInfo[0]:
-            StudioObject.set_favorite(StudioInfo[0], {"KodiItemId": StudioInfo[1], "Id": StudioInfo[3], "KodiArtwork": {'favourite': StudioInfo[2]}})
-
-        utils.update_ProgressBar("update_Studio", Index / RecordsPercent, utils.Translate(33855), str(StudioInfo[1]))
-
-    del StudioObject
-    dbio.DBCloseRO("video", "update_Studio")
-    utils.close_ProgressBar("update_Studio")
-
-def update_Tag(Library):
-    embydb = dbio.DBOpenRO(Library.ServerData['ServerId'], "update_Tag")
-    TagsInfos = embydb.get_FavoriteInfos("Tag") # EmbyFavourite, KodiId, EmbyArtwork, EmbyId
-    dbio.DBCloseRO(Library.ServerData['ServerId'], "update_Tag")
-    SQLs = {"video": dbio.DBOpenRO("video", "update_Tag")}
-    utils.create_ProgressBar("update_Tag", utils.Translate(33199), utils.Translate(33856))
-    TagObject = tag.Tag(Library, SQLs)
-    RecordsPercent = len(TagsInfos) / 100
-
-    for Index, TagInfo in enumerate(TagsInfos, 1):
-        if TagInfo[0]:
-            TagObject.set_favorite(TagInfo[0], {"KodiItemId": TagInfo[1], "Id": TagInfo[3], "KodiArtwork": {'favourite': TagInfo[2]}})
-
-        utils.update_ProgressBar("update_Tag", Index / RecordsPercent, utils.Translate(33856), str(TagInfo[1]))
-
-    dbio.DBCloseRO("video", "update_Tag")
-    del TagObject
-    utils.close_ProgressBar("update_Tag")
-
-def update_MusicGenre(Library):
-    embydb = dbio.DBOpenRO(Library.ServerData['ServerId'], "update_MusicGenre")
-    MusicGenreInfos = embydb.get_FavoriteInfos("MusicGenre") # EmbyFavourite, KodiId, EmbyArtwork, EmbyId
-    dbio.DBCloseRO(Library.ServerData['ServerId'], "update_MusicGenre")
-    SQLs = {"music": dbio.DBOpenRO("music", "update_MusicGenre"), "video": dbio.DBOpenRO("video", "update_MusicGenre")}
-    utils.create_ProgressBar("update_MusicGenre", utils.Translate(33199), utils.Translate(33857))
-    MusicGenreObject = musicgenre.MusicGenre(Library, SQLs)
-    RecordsPercent = len(MusicGenreInfos) / 100
-
-    for Index, MusicGenreInfo in enumerate(MusicGenreInfos, 1):
-        if MusicGenreInfo[0]:
-            MusicGenreObject.set_favorite(MusicGenreInfo[0], {"KodiItemId": MusicGenreInfo[1], "Id": MusicGenreInfo[3], "KodiArtwork": {'favourite': MusicGenreInfo[2]}, "LibraryIds": MusicGenreInfo[4]})
-
-        utils.update_ProgressBar("update_MusicGenre", Index / RecordsPercent, utils.Translate(33857), str(MusicGenreInfo[1]))
-
-    dbio.DBCloseRO("music", "update_MusicGenre")
-    dbio.DBCloseRO("video", "update_MusicGenre")
-    del MusicGenreObject
-    utils.close_ProgressBar("update_MusicGenre")
-
-def update_Person(Library):
-    embydb = dbio.DBOpenRO(Library.ServerData['ServerId'], "update_Person")
-    PersonInfos = embydb.get_FavoriteInfos("Person") # EmbyFavourite, KodiId, EmbyId
-    dbio.DBCloseRO(Library.ServerData['ServerId'], "update_Person")
-    SQLs = {"video": dbio.DBOpenRO("video", "update_Person")}
-    utils.create_ProgressBar("update_Person", utils.Translate(33199), utils.Translate(33858))
-    PersonObject = person.Person(Library, SQLs)
-    RecordsPercent = len(PersonInfos) / 100
-
-    for Index, PersonInfo in enumerate(PersonInfos, 1):
-        if PersonInfo[0]:
-            PersonObject.set_favorite(PersonInfo[0], {"KodiItemId": PersonInfo[1], "Id": PersonInfo[2]})
-
-        utils.update_ProgressBar("update_Person", Index / RecordsPercent, utils.Translate(33858), str(PersonInfo[1]))
-
-    dbio.DBCloseRO("video", "update_Person")
-    del PersonObject
-    utils.close_ProgressBar("update_Person")
 
 def update_MusicArtist(Library):
     embydb = dbio.DBOpenRO(Library.ServerData['ServerId'], "update_MusicArtist")

@@ -1,4 +1,3 @@
-import xbmc
 from helper import utils, copy
 from . import common
 
@@ -18,7 +17,6 @@ class MusicArtist:
         if not common.load_ExistingItem(Item, self.Library, self.SQLs["emby"], "MusicArtist"):
             return False
 
-        if utils.DebugLog: xbmc.log(f"EMBY.core.musicartist (DEBUG): Process item: {Item['Name']}", 1) # DEBUG
         common.set_common(Item, self.Library.ServerData['ServerId'], False, IncrementalSync)
         LibrarySyncedKodiDBs = self.Library.LibrarySyncedKodiDBs.get(f"{Item['LibraryId']}MusicArtist", "video,music")
         NewItem = False
@@ -45,19 +43,12 @@ class MusicArtist:
                             self.SQLs["music"].common_db.delete_artwork(UpdateKodiItemIdCurrent, "artist")
                             self.SQLs["music"].common_db.add_artwork(UpdateItem['KodiArtwork'], UpdateKodiItemIdCurrent, "artist")
                             self.SQLs[KodiDBs[Index]].update_artist(UpdateKodiItemIdCurrent, UpdateItem['Name'], UpdateItem['ProviderIds']['MusicBrainzArtist'], KodiMusicGenre, UpdateItem['Overview'], UpdateItem['KodiArtwork']['thumb'], UpdateItem['KodiLastScraped'], UpdateItem['SortName'], UpdateItem['KodiDateCreated'])
-                            utils.notify_event("content_update", {"EmbyId": UpdateItem['Id'], "KodiId": UpdateKodiItemIdCurrent, "KodiType": "artist"}, IncrementalSync)
                         else: # video
                             self.SQLs["video"].common_db.delete_artwork(UpdateKodiItemIdCurrent, "actor")
                             self.SQLs["video"].common_db.add_artwork(UpdateItem['KodiArtwork'], UpdateKodiItemIdCurrent, "actor")
                             self.SQLs[KodiDBs[Index]].update_person(UpdateKodiItemIdCurrent, UpdateItem['Name'], UpdateItem['KodiArtwork']['thumb'])
-                            utils.notify_event("content_update", {"EmbyId": UpdateItem['Id'], "KodiId": UpdateKodiItemIdCurrent, "KodiType": "actor"}, IncrementalSync)
 
                         self.SQLs["emby"].update_reference_musicartist(UpdateItem['Id'], UpdateItem['LibraryId'])
-
-                        if int(IncrementalSync):
-                            xbmc.log(f"EMBY.core.musicartist: UPDATE ({KodiDBs[Index]}) {UpdateItem['Name']}: {UpdateItem['Id']} / {UpdateItem['LibraryId']}", 1) # LOGINFO
-                        elif utils.DebugLog:
-                            xbmc.log(f"EMBY.core.musicartist (DEBUG): UPDATE ({KodiDBs[Index]}) {UpdateItem['Name']}: {UpdateItem['Id']} / {UpdateItem['LibraryId']}", 1) # LOGDEBUG
 
                         del UpdateItem
 
@@ -70,19 +61,12 @@ class MusicArtist:
                     KodiItemIdCurrent = self.SQLs[KodiDBs[Index]].add_artist(Item['Name'], Item['ProviderIds']['MusicBrainzArtist'], KodiMusicGenre, Item['Overview'], Item['KodiArtwork']['thumb'], Item['KodiLastScraped'], Item['SortName'], Item['KodiDateCreated'], Item['LibraryId'])
                     Item['KodiItemId'] = common.add_Ids_MultiContent(KodiItemIds, KodiItemIdCurrent, Index)
                     self.SQLs["music"].common_db.add_artwork(Item['KodiArtwork'], KodiItemIdCurrent, "artist")
-                    utils.notify_event("content_add", {"EmbyId": Item['Id'], "KodiId": KodiItemIdCurrent, "KodiType": "artist"}, IncrementalSync)
                 else: # video
                     KodiItemIdCurrent = self.SQLs[KodiDBs[Index]].add_person(Item['Name'], Item['KodiArtwork']['thumb'])
                     Item['KodiItemId'] = common.add_Ids_MultiContent(KodiItemIds, KodiItemIdCurrent, Index)
                     self.SQLs["video"].common_db.add_artwork(Item['KodiArtwork'], KodiItemIdCurrent, "actor")
-                    utils.notify_event("content_add", {"EmbyId": Item['Id'], "KodiId": KodiItemIdCurrent, "KodiType": "actor"}, IncrementalSync)
 
                 NewItem = True
-
-                if int(IncrementalSync):
-                    xbmc.log(f"EMBY.core.musicartist: ADD ({KodiDBs[Index]}) {Item['Name']}: {Item['Id']} / {Item['LibraryId']}", 1) # LOGINFO
-                elif utils.DebugLog:
-                    xbmc.log(f"EMBY.core.musicartist (DEBUG): ADD ({KodiDBs[Index]}) {Item['Name']}: {Item['Id']} / {Item['LibraryId']}", 1) # LOGDEBUG
 
         if NewItem:
             self.SQLs["emby"].add_reference_musicartist(Item['Id'], Item['LibraryId'], Item['KodiItemId'], Item['LibraryIds'])
@@ -93,7 +77,6 @@ class MusicArtist:
         Item['LibraryIds'], Item['KodiItemId'], _, _ = self.SQLs["emby"].get_KodiIds_LibraryIds_from_ContentItem(Item['Id'], "MusicArtist")
 
         if not Item['LibraryIds']:
-            if utils.DebugLog: xbmc.log(f"EMBY.core.musicartist (DEBUG): SKIP DELETE, LibraryIds not found {Item['Id']} / {Item['LibraryId']}", 1) # LOGDEBUG
             return
 
         LibrarySyncedKodiDBs = self.Library.LibrarySyncedKodiDBs.get(f"{Item['LibraryId']}MusicArtist", "video,music")
@@ -117,16 +100,6 @@ class MusicArtist:
                 Item['KodiItemId'], _ = common.del_Ids_MultiContent(KodiItemIds, KodiItemIdCurrent, Index)
                 self.SQLs[KodiDBs[Index]].del_musicartist(KodiItemIdCurrent)
 
-                if isVideo:
-                    utils.notify_event("content_remove", {"EmbyId": Item['Id'], "KodiId": KodiItemIdCurrent, "KodiType": "actor"}, IncrementalSync)
-                else:
-                    utils.notify_event("content_remove", {"EmbyId": Item['Id'], "KodiId": KodiItemIdCurrent, "KodiType": "artist"}, IncrementalSync)
-
-                if int(IncrementalSync):
-                    xbmc.log(f"EMBY.core.musicartist: DELETE ({KodiDBs[Index]}) [{KodiItemIdCurrent}] {Item['Id']} / {Item['LibraryId']}", 1) # LOGINFO
-                elif utils.DebugLog:
-                    xbmc.log(f"EMBY.core.musicartist (DEBUG): DELETE ({KodiDBs[Index]}) [{KodiItemIdCurrent}] {Item['Id']} / {Item['LibraryId']}", 1) # LOGDEBUG
-
         # Check if removed LibraryId is still present in one of the Kodi DBs. Happens on Mixed content libraries
         Deleted = False
 
@@ -146,11 +119,6 @@ class MusicArtist:
         if UpdateKodiFavorite:
             self.set_favorite(Item['IsFavorite'], Item)
 
-        if int(IncrementalSync):
-            xbmc.log(f"EMBY.core.musicartist: USERDATA [{Item['KodiItemId']}] {Item['Id']}", 1) # LOGINFO
-        elif utils.DebugLog:
-            xbmc.log(f"EMBY.core.musicartist (DEBUG): USERDATA [{Item['KodiItemId']}] {Item['Id']}", 1) # LOGDEBUG
-
         return True
 
     def set_favorite(self, IsFavorite, Item, Video=True, Music=True): # Kodi Favorites
@@ -165,7 +133,7 @@ class MusicArtist:
                 Name, FavoriteImage, hasMusicVideos, _, _ = self.SQLs["video"].get_People(KodiItemId)
 
                 if hasMusicVideos or not IsFavorite:
-                    utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Artist", "Musicvideos", Item['Id'], self.Library.ServerData['ServerId'], FavoriteImage), IsFavorite, f"videodb://musicvideos/artists/{KodiItemId}/", Name.replace('"', "'"), "window", 10025),))
+                    utils.FavoriteQueue.put((((FavoriteImage or ""), IsFavorite, f"videodb://musicvideos/artists/{KodiItemId}/", Name.replace('"', "'"), "window", 10025),))
 
         if KodiItemIds[0] and Music and "music" in self.SQLs and self.SQLs["music"]: # music
             for Index, KodiItemId in enumerate(KodiItemIds[0]): # music artists
@@ -175,4 +143,4 @@ class MusicArtist:
                 Name, FavoriteImage, hasMusicArtists = self.SQLs["music"].get_Artist(KodiItemId)
 
                 if hasMusicArtists or not IsFavorite:
-                    utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Artist", "Songs", Item['Id'], self.Library.ServerData['ServerId'], FavoriteImage), IsFavorite, f"musicdb://artists/{KodiItemId}/", Name.replace('"', "'"), "window", 10502),))
+                    utils.FavoriteQueue.put((((FavoriteImage or ""), IsFavorite, f"musicdb://artists/{KodiItemId}/", Name.replace('"', "'"), "window", 10502),))

@@ -1,5 +1,4 @@
-import xbmc
-from helper import utils, copy, artworkcache
+from helper import utils, copy
 from . import common, musicgenre, tag, studio, person, musicartist, boxsets
 
 
@@ -29,12 +28,9 @@ class MusicVideo:
         if not common.verify_content(Item, "musicvideo"):
             return False
 
-        if utils.DebugLog: xbmc.log(f"EMBY.core.musicvideo (DEBUG): Process item: {Item['Name']}", 1) # DEBUG
-
         if not common.load_ExistingItem(Item, self.Library, self.SQLs["emby"], "MusicVideo"):
             return False
 
-        common.swap_mediasources(Item)
         common.set_TracksByMediasourceName(Item)
         common.set_RunTimeTicks(Item)
         common.set_streams(Item)
@@ -54,25 +50,17 @@ class MusicVideo:
             KodiPathIdCurrent = KodiPathIds[Index]
             KodiFileIdCurrent = KodiFileIds[Index]
             EmbyMusicArtistIds, EmbyMusicGenreIds = self.set_metadata(UpdateItem, IncrementalSync)
-            common.delete_ContentItemReferences(KodiItemIdCurrent, KodiFileIdCurrent, UpdateItem.get('ExtraType', ""), self.SQLs, "musicvideo", False, Item['MediaSources'][0]['KodiStreams']['Subtitle'] or Item['MediaSources'][0]['KodiStreams']['Audio'] or Item['MediaSources'][0]['KodiStreams']['Video'])
+            common.delete_ContentItemReferences(KodiItemIdCurrent, KodiFileIdCurrent, self.SQLs, "musicvideo", False, Item['MediaSources'][0]['KodiStreams']['Subtitle'] or Item['MediaSources'][0]['KodiStreams']['Audio'] or Item['MediaSources'][0]['KodiStreams']['Video'])
             common.set_path_filename(UpdateItem, self.Library.ServerData['ServerId'], None)
             common.set_multipart(UpdateItem, self.Library)
-            common.update_downloaded_info(UpdateItem, self.SQLs, "musicvideo")
             self.assign_metadata(UpdateItem, KodiItemIdCurrent, KodiFileIdCurrent)
-            self.SQLs["video"].update_musicvideos(KodiItemIdCurrent, KodiFileIdCurrent, UpdateItem['KodiName'], UpdateItem['KodiArtwork']['poster'], UpdateItem['KodiRunTimeTicks'], UpdateItem['Directors'], UpdateItem['Studio'], UpdateItem['Overview'], UpdateItem['Album'], UpdateItem['MusicArtist'], UpdateItem['MusicGenre'], UpdateItem['IndexNumber'], UpdateItem['KodiPremiereDate'], UpdateItem['KodiFilename'], UpdateItem['KodiStackedFilename'], UpdateItem['KodiDateCreated'], KodiPathIdCurrent, UpdateItem['KodiPath'], bool(PlaylistTag), UpdateItem['KodiFullPath'])
+            self.SQLs["video"].update_musicvideos(KodiItemIdCurrent, KodiFileIdCurrent, UpdateItem['Name'], UpdateItem['KodiArtwork']['poster'], UpdateItem['KodiRunTimeTicks'], UpdateItem['Directors'], UpdateItem['Studio'], UpdateItem['Overview'], UpdateItem['Album'], UpdateItem['MusicArtist'], UpdateItem['MusicGenre'], UpdateItem['IndexNumber'], UpdateItem['KodiPremiereDate'], UpdateItem['KodiFilename'], UpdateItem['KodiStackedFilename'], UpdateItem['KodiDateCreated'], KodiPathIdCurrent, UpdateItem['KodiPath'], bool(PlaylistTag), UpdateItem['KodiFullPath'])
             common.remove_old_EmbyMusicArtist(self.SQLs["emby"], UpdateItem['Id'], UpdateItem['LibraryId'], EmbyMusicArtistIds, self.MusicArtistObject, IncrementalSync)
             common.remove_old_EmbyMusicGenre(self.SQLs["emby"], UpdateItem['Id'], UpdateItem['LibraryId'], EmbyMusicGenreIds, self.MusicGenreObject, IncrementalSync)
             self.SQLs["emby"].update_reference_musicvideo(UpdateItem['Id'], UpdateItem['PresentationUniqueKey'], UpdateItem['LibraryId'], EmbyMusicArtistIds, EmbyMusicGenreIds)
 
-            if int(IncrementalSync):
-                xbmc.log(f"EMBY.core.musicvideo: UPDATE [{KodiPathIdCurrent} / {KodiFileIdCurrent} / {KodiItemIdCurrent}] {UpdateItem['Id']}: {UpdateItem['Name']}", 1) # LOGINFO
-            elif utils.DebugLog:
-                xbmc.log(f"EMBY.core.musicvideo (DEBUG): UPDATE [{KodiPathIdCurrent} / {KodiFileIdCurrent} / {KodiItemIdCurrent}] {UpdateItem['Id']}: {UpdateItem['Name']}", 1) # LOGDEBUG
-
-            utils.notify_event("content_update", {"EmbyId": UpdateItem['Id'], "KodiId": KodiItemIdCurrent, "KodiType": "musicvideo"}, IncrementalSync)
             common.update_boxsets(IncrementalSync, UpdateItem['ParentId'], UpdateItem['LibraryId'], self.SQLs, self.Library) # Update Boxset
             common.add_multiversion(UpdateItem, "MusicVideo", self.Library, self.SQLs, EmbyMusicArtistIds, EmbyMusicGenreIds)
-            artworkcache.CacheNativeChapter(UpdateItem['MediaSources'][0].get('ChaptersNative', []), "MusicVideo", UpdateItem['KodiFullPath'])
             del UpdateItem
 
         # New library (insert new Kodi record)
@@ -94,15 +82,8 @@ class MusicVideo:
             self.SQLs["video"].add_musicvideos(KodiItemIdCurrent, KodiFileIdCurrent, Item['Name'], Item['KodiArtwork']['poster'], Item['KodiRunTimeTicks'], Item['Directors'], Item['Studio'], Item['Overview'], Item['Album'], Item['MusicArtist'], Item['MusicGenre'], Item['IndexNumber'], Item['KodiFullPath'], KodiPathIdCurrent, Item['KodiPremiereDate'], Item['KodiDateCreated'], Item['KodiFilename'], Item['KodiStackedFilename'], bool(PlaylistTag))
             self.SQLs["emby"].add_reference_musicvideo(Item['Id'], Item['LibraryId'], KodiItemIds, KodiFileIds, Item['PresentationUniqueKey'], Item['Path'], KodiPathIds, Item['LibraryIds'], EmbyMusicArtistIds, EmbyMusicGenreIds)
 
-            if int(IncrementalSync):
-                xbmc.log(f"EMBY.core.musicvideo: ADD [{KodiPathIdCurrent} / {KodiFileIdCurrent} / {KodiItemIdCurrent}] {Item['Id']}: {Item['Name']}", 1) # LOGINFO
-            elif utils.DebugLog:
-                xbmc.log(f"EMBY.core.musicvideo (DEBUG): ADD [{KodiPathIdCurrent} / {KodiFileIdCurrent} / {KodiItemIdCurrent}] {Item['Id']}: {Item['Name']}", 1) # LOGDEBUG
-
-            utils.notify_event("content_add", {"EmbyId": Item['Id'], "KodiId": KodiItemIdCurrent, "KodiType": "musicvideo"}, IncrementalSync)
             common.update_boxsets(IncrementalSync, Item['ParentId'], Item['LibraryId'], self.SQLs, self.Library) # Update Boxset
             common.add_multiversion(Item, "MusicVideo", self.Library, self.SQLs, EmbyMusicArtistIds, EmbyMusicGenreIds)
-            artworkcache.CacheNativeChapter(Item['MediaSources'][0].get('ChaptersNative', []), "MusicVideo", Item['KodiFullPath'])
 
         return not Item['UpdateItem']
 
@@ -141,7 +122,7 @@ class MusicVideo:
         KodiItemIds = common.get_Ids_SingleContent(Item['KodiItemId'])
         KodiFileIds = common.get_Ids_SingleContent(Item['KodiFileId'])
 
-        for Index, KodiItemIdCurrent in enumerate(KodiItemIds):
+        for Index in range(len(KodiItemIds)):
             KodiFileIdCurrent = KodiFileIds[Index]
             common.set_playstate(Item)
             common.set_RunTimeTicks(Item)
@@ -152,13 +133,6 @@ class MusicVideo:
             if UpdateKodiFavorite and Item['Type'] != "Playlist":
                 self.set_favorite(Item['IsFavorite'], Item)
 
-            if int(IncrementalSync):
-                xbmc.log(f"EMBY.core.musicvideo: USERDATA [{KodiFileIdCurrent} / {KodiItemIdCurrent}] {Item['Id']}", 1) # LOGINFO
-            elif utils.DebugLog:
-                xbmc.log(f"EMBY.core.musicvideo (DEBUG): USERDATA [{KodiFileIdCurrent} / {KodiItemIdCurrent}] {Item['Id']}", 1) # LOGDEBUG
-
-            utils.notify_event("content_changed", {"EmbyId": Item['Id'], "KodiId": Item['KodiItemId'], "KodiType": "musicvideo"}, True)
-
         return Update
 
     def remove(self, Item, IncrementalSync):
@@ -167,7 +141,6 @@ class MusicVideo:
         Item['LibraryIds'], Item['KodiItemId'], Item['KodiFileId'], Item['KodiPathId'] = self.SQLs["emby"].get_KodiIds_LibraryIds_from_ContentItem(Item['Id'], "MusicVideo") # (Re)Load LibraryIds, KodiItemId as references could be modify data after collecting
 
         if not Item['LibraryIds']:
-            if utils.DebugLog: xbmc.log(f"EMBY.core.musicvideo (DEBUG): SKIP DELETE, LibraryIds not found {Item['Id']} / {Item['LibraryId']}", 1) # DEBUGLOG
             return
 
         self.set_favorite(False, Item)
@@ -192,7 +165,6 @@ class MusicVideo:
             Item['LibraryId'] = str(Item['LibraryId'])
 
             if Item['LibraryId'] not in LibraryIds:
-                if utils.DebugLog: xbmc.log(f"EMBY.core.musicvideo (DEBUG): SKIP DELETE, LibraryId not found {Item['Id']} / {Item['LibraryId']}", 1) # DEBUGLOG
                 continue
 
             Links = self.SQLs['emby'].get_Links(Item['Id'], Item['LibraryId'])
@@ -208,7 +180,7 @@ class MusicVideo:
                 Item['KodiItemId'] = common.del_Ids_SingleContent(KodiItemIds, KodiItemIdCurrent)
                 Item['KodiFileId'] = common.del_Ids_SingleContent(KodiFileIds, KodiFileIdCurrent)
                 Item['KodiPathId'] = common.del_Ids_SingleContent(KodiPathIds, KodiPathIdCurrent)
-                common.delete_ContentItemReferences(KodiItemIdCurrent, KodiFileIdCurrent, Item.get('ExtraType', ""), self.SQLs, "musicvideo", False, True)
+                common.delete_ContentItemReferences(KodiItemIdCurrent, KodiFileIdCurrent, self.SQLs, "musicvideo", False, True)
             else:
                 KodiItemIdCurrent = None
                 KodiFileIdCurrent = None
@@ -222,22 +194,10 @@ class MusicVideo:
                 LibrarySyncedName = self.Library.LibrarySyncedNames[Item['LibraryId']]
                 self.SQLs["video"].delete_library_links_tags(KodiItemIdCurrent, "musicvideo", LibrarySyncedName)
 
-                if int(IncrementalSync):
-                    xbmc.log(f"EMBY.core.musicvideo: DELETE PARTIAL [{KodiItemIdCurrent}] {Item['Id']} / {Item['LibraryId']}", 1) # LOGINFO
-                elif utils.DebugLog:
-                    xbmc.log(f"EMBY.core.musicvideo (DEBUG): DELETE PARTIAL [{KodiItemIdCurrent}] {Item['Id']} / {Item['LibraryId']}", 1) # LOGDEBUG
-            else:
-                if int(IncrementalSync):
-                    xbmc.log(f"EMBY.core.musicvideo: DELETE [{KodiItemIdCurrent}] {Item['Id']} / {Item['LibraryId']}", 1) # LOGINFO
-                elif utils.DebugLog:
-                    xbmc.log(f"EMBY.core.musicvideo (DEBUG): DELETE [{KodiItemIdCurrent}] {Item['Id']} / {Item['LibraryId']}", 1) # LOGDEBUG
-
-            utils.notify_event("content_remove", {"EmbyId": Item['Id'], "KodiId": KodiItemIdCurrent, "KodiType": "musicvideo"}, IncrementalSync)
-
     def set_favorite(self, IsFavorite, Item):
         common.validate_FavoriteImage(Item)
 
         if IsFavorite and not Item['KodiArtwork']['favourite'] or "KodiFullPath" not in Item:
             Item['KodiFullPath'], Item['KodiArtwork']['favourite'], Item['Name'] = self.SQLs["video"].get_favoriteData(Item['KodiFileId'], Item['KodiItemId'], "musicvideo")
 
-        utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Musicvideo", "Musicvideos", Item['Id'], self.Library.ServerData['ServerId'], Item['KodiArtwork']['favourite']), IsFavorite, Item['KodiFullPath'], Item['Name'].replace('"', "'"), "media", 0),))
+        utils.FavoriteQueue.put((((Item['KodiArtwork']['favourite'] or ""), IsFavorite, Item['KodiFullPath'], Item['Name'].replace('"', "'"), "media", 0),))

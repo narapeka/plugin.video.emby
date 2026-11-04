@@ -1,4 +1,3 @@
-import xbmc
 import xbmcgui
 from helper import utils
 
@@ -56,7 +55,6 @@ class LoginManual(xbmcgui.WindowXMLDialog):
             if not user:
                 # Display error
                 self._error(ERROR['Empty'], utils.Translate(30613))
-                xbmc.log("EMBY.dialogs.loginmanual: Username cannot be null", 3) # LOGERROR
             else:
                 self.SelectedUser = user, password
                 self.close()

@@ -1,4 +1,3 @@
-import xbmc
 import xbmcgui
 from helper import utils
 
@@ -65,7 +64,6 @@ class ServerConnect(xbmcgui.WindowXMLDialog):
         if action in (ACTION_SELECT_ITEM, ACTION_MOUSE_LEFT_CLICK):
             if self.getFocusId() == LIST:
                 server = self.list_.getSelectedItem()
-                xbmc.log(f"EMBY.dialogs.serverconnect: Server Id selected: {server.getProperty('id')}", 1) # LOGINFO
                 Server_Selected_Id = server.getProperty('id')
                 Server_Selected_Name = server.getProperty('Name')
 

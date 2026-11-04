@@ -1,6 +1,59 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
 *.pyo
+
+# Packaging & Distribution
+*.zip
+*.tar.gz
+dist/
+build/
+*.egg-info/
+
+# Local documentation and debug artifacts
+/tests/
+/docs/
+/debug/
+/logs/
+/.codex-attachments/
+*.[mM][dD]
+!/README.md
+
+# Emby / Kodi local data & credentials
 __local__/
 machine_guid
-/resources/media/Thumbs.db
+*.log
+*.sqlite
+*.db
+backup/
+download/
+offline-content/
 
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE & Editor settings
 .idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+.cursor/
+
+# Operating System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini

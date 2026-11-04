@@ -1,4 +1,3 @@
-import xbmc
 import xbmcgui
 from helper import utils
 
@@ -50,7 +49,6 @@ class ServerManual(xbmcgui.WindowXMLDialog):
             if not server:
                 # Display error
                 self._error(ERROR['Empty'], utils.Translate(30617))
-                xbmc.log("EMBY.dialogs.servermanual: Server cannot be null", 3) # LOGERROR
             else:
                 Scheme, Hostname, Port, SubUrl = utils.get_url_info(server)
 

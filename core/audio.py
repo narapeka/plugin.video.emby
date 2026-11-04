@@ -1,5 +1,3 @@
-import json
-import xbmc
 from helper import utils, copy
 from . import common, musicartist, musicalbum, musicgenre
 
@@ -22,19 +20,11 @@ class Audio:
 
     def change(self, Item, IncrementalSync, PlaylistId=""):
         if 'Path' not in Item:
-            xbmc.log(f"EMBY.core.audio: Path not found: {Item}", 3) # LOGERROR
             return False
-
-        if utils.DebugLog: xbmc.log(f"EMBY.core.audio (DEBUG): Process item: {Item['Name']}", 1) # DEBUG
 
         if not common.load_ExistingItem(Item, self.Library, self.SQLs["emby"], "Audio"):
             return False
 
-        if 'ExtraType' in Item:
-            if Item['ExtraType'] == "ThemeSong": # ThemeVideo
-                self.SQLs["emby"].add_reference_audio_parent(Item['Id'], Item['LibraryId'], Item['Path'], Item['ExtraType'], Item['KodiParentId'], Item['EmbyParentType'], json.dumps(Item), Item['ParentId'])
-                if utils.DebugLog: xbmc.log(f"EMBY.core.audio (DEBUG): ADD EXTRATYPE {Item['Id']} / {Item['LibraryId']} / {Item['ExtraType']}", 1) # DEBUGLOG
-                return False
 
         common.set_RunTimeTicks(Item)
         common.set_common(Item, self.Library.ServerData['ServerId'], False, IncrementalSync)
@@ -94,12 +84,6 @@ class Audio:
             common.remove_old_EmbyMusicAlbum(self.SQLs["emby"], UpdateItem['Id'], UpdateItem['LibraryId'], UpdateItem["MusicAlbumId"], self.MusicAlbumObject, IncrementalSync)
             self.SQLs["emby"].update_reference_audio(UpdateItem['Id'], UpdateItem['LibraryId'], UpdateItem['MusicAlbumId'], EmbyMusicArtistIds, EmbyMusicGenreIds)
 
-            if int(IncrementalSync):
-                xbmc.log(f"EMBY.core.audio: UPDATE [{KodiAlbumId} / {UpdateKodiItemIdCurrent}] {UpdateItem['Id']} / {UpdateItem['LibraryId']}: {UpdateItem['Name']}", 1) # LOGINFO
-            elif utils.DebugLog:
-                xbmc.log(f"EMBY.core.audio (DEBUG): UPDATE [{KodiAlbumId} / {UpdateKodiItemIdCurrent}] {UpdateItem['Id']} / {UpdateItem['LibraryId']}: {UpdateItem['Name']}", 1) # LOGDEBUG
-
-            utils.notify_event("content_update", {"EmbyId": UpdateItem['Id'], "KodiId": UpdateKodiItemIdCurrent, "KodiType": "audio"}, IncrementalSync)
             del UpdateItem
 
         # New library (insert new Kodi record)
@@ -114,13 +98,6 @@ class Audio:
             Item['KodiItemIdNew'] = KodiItemIdCurrent
             self.SQLs["emby"].add_reference_audio(Item['Id'], Item['LibraryId'], KodiItemIds, Item['Path'], Item['KodiPathId'], LibraryIds, Item['MusicAlbumId'], EmbyMusicArtistIds, EmbyMusicGenreIds, Item['ParentId'])
             self.set_links(Item, KodiItemIdCurrent)
-
-            if int(IncrementalSync):
-                xbmc.log(f"EMBY.core.audio: ADD [{Item['KodiPathId']} / {KodiAlbumId} / {KodiItemIdCurrent}] {Item['Id']} / {Item['LibraryId']}: {Item['Name']}", 1) # LOGINFO
-            elif utils.DebugLog:
-                xbmc.log(f"EMBY.core.audio (DEBUG): ADD [{Item['KodiPathId']} / {KodiAlbumId} / {KodiItemIdCurrent}] {Item['Id']} / {Item['LibraryId']}: {Item['Name']}", 1) # LOGDEBUG
-
-            utils.notify_event("content_add", {"EmbyId": Item['Id'], "KodiId": KodiItemIdCurrent, "KodiType": "audio"}, IncrementalSync)
 
         return not Item['UpdateItem']
 
@@ -155,13 +132,6 @@ class Audio:
         for KodiItemId in Item['KodiItemId'].split(","):
             self.SQLs["music"].update_song_metadata(Item['KodiPlayCount'], Item['KodiLastPlayedDate'], KodiItemId)
 
-            if int(IncrementalSync):
-                xbmc.log(f"EMBY.core.audio: USERDATA [{KodiItemId}] {Item['Id']}", 1) # LOGINFO
-            elif utils.DebugLog:
-                xbmc.log(f"EMBY.core.audio (DEBUG): USERDATA [{KodiItemId}] {Item['Id']}", 1) # LOGDEBUG
-
-            utils.notify_event("content_changed", {"EmbyId": Item['Id'], "KodiId": KodiItemId, "KodiType": "audio"}, True)
-
         return True
 
     def remove(self, Item, IncrementalSync):
@@ -174,7 +144,6 @@ class Audio:
         Item['LibraryIds'], Item['KodiItemId'], _, _ = self.SQLs["emby"].get_KodiIds_LibraryIds_from_ContentItem(Item['Id'], "Audio") # (Re)Load LibraryIds, KodiItemId as refreences could be modify data after
 
         if not Item['LibraryIds']:
-            xbmc.log(f"EMBY.core.audio (DEBUG): SKIP DELETE, LibraryIds not found {Item['Id']} / {Item['LibraryId']}", 1) # DEBUGLOG
             return
 
         self.set_favorite(False, Item)
@@ -195,7 +164,6 @@ class Audio:
 
         for LibraryIdRemove in LibraryIdsRemove:
             if LibraryIdRemove not in LibraryIds:
-                if utils.DebugLog: xbmc.log(f"EMBY.core.audio (DEBUG): SKIP DELETE, LibraryId not found {Item['Id']} / {Item['LibraryId']}", 1) # DEBUGLOG
                 continue
 
             Links = self.SQLs['emby'].get_Links(Item['Id'], LibraryIdRemove)
@@ -212,18 +180,6 @@ class Audio:
                 Item['LibraryIds'] = common.del_Ids_SingleContent(LibraryIds, LibraryIdRemove)
                 self.SQLs['emby'].update_references(Item['Id'], Item['KodiItemId'], "Audio", Item['LibraryIds'])
 
-                if int(IncrementalSync):
-                    xbmc.log(f"EMBY.core.audio: DELETE PARTIAL [{KodiItemIdCurrent}] {Item['Id']} / {LibraryIdRemove}", 1) # LOGINFO
-                elif utils.DebugLog:
-                    xbmc.log(f"EMBY.core.audio (DEBUG): DELETE PARTIAL [{KodiItemIdCurrent}] {Item['Id']} / {LibraryIdRemove}", 1) # LOGDEBUG
-            else:
-                if int(IncrementalSync):
-                    xbmc.log(f"EMBY.core.audio: DELETE [{KodiItemIdCurrent}] {Item['Id']} / {LibraryIdRemove}", 1) # LOGINFO
-                elif utils.DebugLog:
-                    xbmc.log(f"EMBY.core.audio (DEBUG): DELETE [{KodiItemIdCurrent}] {Item['Id']} / {LibraryIdRemove}", 1) # LOGDEBUG
-
-            utils.notify_event("content_remove", {"EmbyId": Item['Id'], "KodiId": KodiItemIdCurrent, "KodiType": "audio"}, IncrementalSync)
-
     def set_favorite(self, IsFavorite, Item):
         common.validate_FavoriteImage(Item)
 
@@ -231,4 +187,4 @@ class Audio:
             if IsFavorite and not Item['KodiArtwork']['favourite'] or "Name" not in Item or "KodiFullPath" not in Item:
                 Item['KodiFullPath'], Item['KodiArtwork']['favourite'], Item['Name'] = self.SQLs["music"].get_favoriteData(KodiItemId)
 
-            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Song", "Songs", Item['Id'], self.Library.ServerData['ServerId'], Item['KodiArtwork']['favourite']), IsFavorite, Item['KodiFullPath'], Item['Name'].replace('"', "'"), "media", 0),))
+            utils.FavoriteQueue.put((((Item['KodiArtwork']['favourite'] or ""), IsFavorite, Item['KodiFullPath'], Item['Name'].replace('"', "'"), "media", 0),))

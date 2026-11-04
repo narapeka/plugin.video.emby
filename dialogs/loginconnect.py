@@ -1,4 +1,3 @@
-import xbmc
 import xbmcgui
 from helper import utils
 
@@ -49,7 +48,6 @@ class LoginConnect(xbmcgui.WindowXMLDialog):
             if not user or not password:
                 # Display error
                 self._error(ERROR['Empty'], utils.Translate(30608))
-                xbmc.log("EMBY.dialogs.loginconnect: Username or password cannot be null", 3) # LOGERROR
             else:
                 self.Login = user, password
                 self.close()

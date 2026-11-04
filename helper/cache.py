@@ -6,7 +6,6 @@ CacheLock = threading.Lock()
 ItemCacheId_by_Path = {} # [Path] = ItemCacheId -> used by player.py
 Path_by_ItemCacheId = {} # [ItemCacheId] = Path -> reverse lookup, used by player.py
 Item_by_ItemCacheId = {} # [ItemCacheId] = Item
-Query = {} # [CacheId] = [ItemCacheIds, QueryParams]
 
 def add_Item(Item, ServerId):
     with utils.SafeLock(CacheLock):
@@ -47,12 +46,12 @@ def get_ItemByEmbyId(EmbyId, ServerId):
 
 def reset():
     with utils.SafeLock(CacheLock):
-        Query.clear()
         ItemCacheId_by_Path.clear()
         Path_by_ItemCacheId.clear()
         Item_by_ItemCacheId.clear()
 
-    utils.refresh_DynamicNode()
+    utils.refresh_widgets(True)
+    utils.refresh_widgets(False)
 
 def remove(EmbyId, ServerId):
     ItemCacheId = f"{EmbyId};{ServerId}"
@@ -157,7 +156,7 @@ def update_Listitem(Item, GenericPlayCount, KodiLastPlayedDate, KodiPlaybackPosi
         GenericPlayed, GenericPlayCount = set_Playcount(InfoTag, GenericPlayCount, KodiPlayEnded, True)
         set_LastPlayedDate(InfoTag, KodiLastPlayedDate)
         Update = True
-    elif Item['Type'] not in ("Photo", "PhotoAlbum"): # Videos
+    else: # Videos
         InfoTag = Item['ListItem'].getVideoInfoTag()
 
         if KodiPlaybackPositionTicks is not None:
@@ -224,37 +223,3 @@ def update_userdata_Emby(EmbyId, ServerId, PlaybackPositionTicks, PlayCount, IsF
                 return  True
 
     return False
-
-def remove_Query(CacheId):
-    with utils.SafeLock(CacheLock):
-        if CacheId in Query:
-            del Query[CacheId]
-
-def add_Query(CacheId, QueryParams, ItemsListings):
-    with utils.SafeLock(CacheLock):
-        ItemCacheIds = len(ItemsListings[1]) * [""]
-
-        for Index, ItemCacheId in enumerate(ItemsListings[1]):
-            ItemCacheIds[Index] = ItemCacheId
-
-        Query[CacheId] = [ItemCacheIds, QueryParams]
-
-def get_Query(CacheId):
-    with utils.SafeLock(CacheLock):
-        ItemsListings = [[], []]
-
-        if CacheId not in Query:
-            return {}
-
-        for ItemCacheId in Query[CacheId][0]:
-            if ItemCacheId not in Item_by_ItemCacheId:
-                return {}
-
-            Item = Item_by_ItemCacheId[ItemCacheId]
-            IsFolder = Item.get('IsFolder', False)
-            ItemsListings[0].append((Item['KodiFullPath'], Item["ListItem"], IsFolder))
-            ItemsListings[1].append(ItemCacheId)
-
-        Cache = Query[CacheId][1] # QueryParams
-        Cache['listings'] = ItemsListings
-        return Cache

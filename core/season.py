@@ -1,4 +1,3 @@
-import xbmc
 from helper import utils
 from . import common, series
 
@@ -15,38 +14,33 @@ class Season:
 
     def change(self, Item, IncrementalSync):
         if 'Name' not in Item:
-            xbmc.log(f"EMBY.core.season: Name not found: {Item}", 3) # LOGERROR
             return False
-
-        if utils.DebugLog: xbmc.log(f"EMBY.core.season (DEBUG): Process item: {Item['Name']}", 1) # DEBUG
 
         if not common.load_ExistingItem(Item, self.Library, self.SQLs["emby"], "Season"):
             return False
 
         common.set_PresentationUniqueKey(Item)
         common.set_overview(Item)
-        common.set_ItemsDependencies(Item, self.SQLs, self.SeriesObject, self.Library, "Series", IncrementalSync, Item['LibraryId'])
+        ExistingParents = {}
+        common.set_ItemsDependencies(Item, self.SQLs, self.SeriesObject, self.Library,
+                                    "Series", IncrementalSync, Item['LibraryId'],
+                                    ExistingParents=ExistingParents)
         common.set_KodiArtwork(Item, self.Library.ServerData['ServerId'], False)
-
-        if IncrementalSync and utils.ArtworkCacheIncremental:
-            common.cache_artwork(Item['KodiArtwork'])
 
         Item['IndexNumber'] = Item.get('IndexNumber', 0)
         Item['SeriesName'] = Item.get('SeriesName', "")
-        Item['KodiParentId'] = self.SQLs["emby"].get_KodiId_by_EmbyId_EmbyType(Item['SeriesId'], "Series")
+        if "Series" in ExistingParents:
+            Item['KodiParentId'] = ExistingParents["Series"][1]
+        else:
+            Item['KodiParentId'] = self.SQLs["emby"].get_KodiId_by_EmbyId_EmbyType(
+                Item['SeriesId'], "Series")
 
         if not Item['UpdateItem']:
-            if utils.DebugLog: xbmc.log(f"EMBY.core.season (DEBUG): KodiSeasonId {Item['Id']} not found", 1) # LOGDEBUG
             StackedKodiId = self.SQLs["emby"].get_KodiId_by_EmbyPresentationKey("Season", Item['PresentationUniqueKey'])
 
             if StackedKodiId:
                 Item['KodiItemId'] = StackedKodiId
                 self.SQLs["emby"].add_reference_season(Item['Id'], Item['LibraryId'], Item['KodiItemId'], Item['KodiParentId'], Item['PresentationUniqueKey'])
-
-                if int(IncrementalSync):
-                    xbmc.log(f"EMBY.core.season: ADD STACKED [{Item['KodiParentId']} / {Item['KodiItemId']}] {Item['Name'] or Item['IndexNumber']}: {Item['Id']}", 1) # LOGINFO
-                elif utils.DebugLog:
-                    xbmc.log(f"EMBY.core.season (DEBUG): ADD STACKED [{Item['KodiParentId']} / {Item['KodiItemId']}] {Item['Name'] or Item['IndexNumber']}: {Item['Id']}", 1) # LOGDEBUG
 
                 return False
 
@@ -63,22 +57,9 @@ class Season:
             self.SQLs["video"].update_season(Item['KodiParentId'], Item['IndexNumber'], Item['Name'], Item['KodiItemId'], Item['Overview'])
             self.SQLs["emby"].update_reference_generic(Item['Id'], Item['LibraryId'])
 
-            if int(IncrementalSync):
-                xbmc.log(f"EMBY.core.season: UPDATE [{Item['KodiParentId']} / {Item['KodiItemId']}] {Item['Name'] or Item['IndexNumber']}: {Item['Id']}", 1) # LOGINFO
-            elif utils.DebugLog:
-                xbmc.log(f"EMBY.core.season (DEBUG): UPDATE [{Item['KodiParentId']} / {Item['KodiItemId']}] {Item['Name'] or Item['IndexNumber']}: {Item['Id']}", 1) # LOGDEBUG
-
-            utils.notify_event("content_update", {"EmbyId": Item['Id'], "KodiId": Item['KodiItemId'], "KodiType": "season"}, IncrementalSync)
         else:
             self.SQLs["video"].add_season(Item['KodiItemId'], Item['KodiParentId'], Item['IndexNumber'], Item['Name'], Item['Overview'])
             self.SQLs["emby"].add_reference_season(Item['Id'], Item['LibraryId'], Item['KodiItemId'], Item['KodiParentId'], Item['PresentationUniqueKey'])
-
-            if int(IncrementalSync):
-                xbmc.log(f"EMBY.core.season: ADD [{Item['KodiParentId']} / {Item['KodiItemId']}] {Item['Name'] or Item['IndexNumber']}: {Item['Id']}", 1) # LOGINFO
-            elif utils.DebugLog:
-                xbmc.log(f"EMBY.core.season (DEBUG): ADD [{Item['KodiParentId']} / {Item['KodiItemId']}] {Item['Name'] or Item['IndexNumber']}: {Item['Id']}", 1) # LOGDEBUG
-
-            utils.notify_event("content_add", {"EmbyId": Item['Id'], "KodiId": Item['KodiItemId'], "KodiType": "season"}, IncrementalSync)
 
         return not Item['UpdateItem']
 
@@ -94,12 +75,6 @@ class Season:
 
         self.SQLs["emby"].update_favourite(Item['IsFavorite'], Item['Id'], "Season")
 
-        if int(IncrementalSync):
-            xbmc.log(f"EMBY.core.season: USERDATA {Item['Id']}", 1) # LOGINFO
-        elif utils.DebugLog:
-            xbmc.log(f"EMBY.core.season (DEBUG): USERDATA {Item['Id']}", 1) # LOGDEBUG
-
-        utils.notify_event("content_changed", {"EmbyId": Item['Id'], "KodiId": Item['KodiItemId'], "KodiType": "season"}, True)
         return False
 
     # Remove showid, fileid, pathid, emby reference.
@@ -116,12 +91,6 @@ class Season:
 
             for KodiId, EmbyType in SubcontentKodiIds:
                 self.SQLs["emby"].remove_item_by_KodiId(KodiId, EmbyType, Item['LibraryId'])
-                utils.notify_event("content_remove", {"EmbyId": Item['Id'], "KodiId": KodiId, "KodiType": "season"}, IncrementalSync)
-
-            if int(IncrementalSync):
-                xbmc.log(f"EMBY.core.season: DELETE {Item['Id']}", 1) # LOGINFO
-            elif utils.DebugLog:
-                xbmc.log(f"EMBY.core.season (DEBUG): DELETE {Item['Id']}", 1) # LOGDEBUG
 
     def set_favorite(self, IsFavorite, Item):
         common.validate_FavoriteImage(Item)
@@ -130,4 +99,4 @@ class Season:
             Item['KodiArtwork']['favourite'], Item['Name'], Item['IndexNumber'] = self.SQLs["video"].get_FavoriteSubcontent(Item['KodiItemId'], "season")
 
         if Item['Name']:
-            utils.FavoriteQueue.put(((common.set_Favorites_Artwork_Overlay("Season", "TV Shows", Item['Id'], self.Library.ServerData['ServerId'], Item['KodiArtwork']['favourite']), IsFavorite, f"videodb://tvshows/titles/{Item['KodiParentId']}/{Item['IndexNumber']}/", Item['Name'].replace('"', "'"), "window", 10025),))
+            utils.FavoriteQueue.put((((Item['KodiArtwork']['favourite'] or ""), IsFavorite, f"videodb://tvshows/titles/{Item['KodiParentId']}/{Item['IndexNumber']}/", Item['Name'].replace('"', "'"), "window", 10025),))

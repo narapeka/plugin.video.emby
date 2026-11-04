@@ -1,4 +1,3 @@
-import xbmc
 import xbmcgui
 
 ACTION_PARENT_DIR = 9
@@ -38,7 +37,6 @@ class UsersConnect(xbmcgui.WindowXMLDialog):
             if self.getFocusId() == LIST:
                 user = self.list_.getSelectedItem()
                 selected_id = user.getProperty('id')
-                xbmc.log(f"EMBY.dialogs.userconnect: User Id selected: {selected_id}", 1) # LOGINFO
 
                 for user in self.users:
                     if user['Id'] == selected_id:

@@ -1,48 +1,104 @@
-# Emby for Kodi
+# Emby for Kodi Next Gen 定制版
 
-[![EmbyKodi_Banner](https://i.imgur.com/hx4cx41.png)](https://emby.media/community/index.php?/forum/99-kodi/)
+本分支将 Emby 媒体同步到 Kodi 原生资料库，保留播放、观看进度、已看状态和收藏的双向同步。支持电影、合集、剧集、MV、音乐、普通视频和播放列表。Emby 客户端仍可把已同步或未同步的条目投送到 Kodi。
 
-[![Wiki](https://img.shields.io/badge/get%20started-wiki-brightgreen.svg)](https://github.com/MediaBrowser/plugin.video.emby/wiki) 
-[![Forums](https://img.shields.io/badge/report%20issues-forums-3960C1.svg)](https://emby.media/community/index.php?/forum/99-kodi/)
-[![Emby for Kodi objects](https://img.shields.io/badge/patch-objects-3960C1.svg)](https://github.com/MediaBrowser/plugin.video.emby.objects)
-[![Emby](https://img.shields.io/badge/server-emby-52b54b.svg)](https://emby.media/)
+以下改动以官方 Emby for Kodi Next Gen 12.5.1（`24e0301c4ac6eed69a63888285651a06cfba9f7b`）为基线，涵盖定制版 `x12.5.1.1` 的同步、播放、剧集预选和 Similar 接口。
 
-___
-**A whole new way to manage and view your media library.**
+## 新增与播放改进
 
-The Emby for Kodi add-on combines the best of Kodi - ultra smooth navigation, beautiful UIs and playback of any file under the sun, and Emby - the most powerful open source multi-client media metadata indexer and server. You can now retire your MySQL setup in favor of a more flexible setup.
+- **剧集自动沿用下一集版本。** 同一服务器、同一部剧、同一季内，自然播完后保留本次选版。下一集优先匹配 `[REMUX]`、`[NF]` 等版本名称中的半角方括号标记。标记不存在或找不到匹配时，尝试沿用上一集的排序位置，位置超界则选首项。手动停止或切到非剧集内容会清除连播记忆。
+- **统一版本排序。** `[Default]` 优先，其余按名称排序，比较时忽略大小写，同名用媒体源 ID 固定顺序。显式手动选版按实际媒体源 ID 播放，优先于连播记忆。自动选择最高分辨率是独立的播放设置，默认关闭，优先级低于同季记忆。
+- **Kodi 可在起播前选版。** 支持此接口的 Kodi 客户端提供剧集详情按钮、集卡片和右键选版入口。详情页使用已同步到本地播放地址的多版本标记决定按钮显隐。有进度时，显式选版入口可先选继续或从头，再选版本。剧集进度沿用原书签，Kodi 不在书签里保存上次所选来源。
+- **自动跨季继续播放。** Kodi fork 自动进入下一季时，Gen 不复用上一季的选版记忆。开了最高分辨率时按分辨率选择，关闭时选当前排序首项。新一季成功起播后建立该季的连播记忆。Gen 自己的旧选版框仍供其他客户端使用。
+- **电影默认版本与文件身份。** 首次同步或版本组重建时用排序首项作为 Kodi 默认版本，每个电影版本的播放地址绑定自身媒体源。成员、路径和归属相同时原位更新，保留电影 ID、各版本文件 ID、Kodi 中手动设置的默认版本、书签和已有流信息。版本增删、移组或路径变化仍沿用重建流程。
+- **统一直播放路。** 普通媒体使用 Emby 静态 HTTP 流，媒体源本身是 HTTP(S) 地址时跟随其原始地址。保留 ISO、Blu-ray 和 DVD 目录的原路径播放，以及符合条件的 HTTP ISO 入口。
+- **播放提示与维护。** 片头、片尾提示统一为右下角小按钮，可保留询问或自动跳过。设置提供清理 Kodi 图片缓存和压缩数据库两项独立操作。设备名可选填，留空时使用 Kodi 的设备名。
 
-Synchronize your media on your Emby server to the native Kodi database, browsing your media at full speed, while retaining the ability to use other Kodi add-ons to enhance your experience. In addition, you can use any Kodi skin you'd like!
-___
+## API 接口
 
-### Supported
+Gen 服务仅监听 `127.0.0.1:57342`，供同机 Kodi 客户端调用。Kodi 客户端与 Gen 需要使用相同的接口版本。
 
-The add-on supports a hybrid approach. You can decide which Emby libraries to sync to the Kodi database. Other libraries and features are accessible dynamically, as a plugin listing.
-- Library types available to sync:
-  + Movies and sets
-  + TV shows
-  + Music videos
-  + Music
-- Other features supported:
-  + Simple Live TV presentation
-  + Home Videos & photos
-  + Playlists
-  + Theme media
-- Direct play and transcode
-- A 2-way watched and resume state between your server and Kodi. This is a near instant feature.
-- Remote control your Kodi; send play commands from your Emby web client or Emby mobile apps.
-- Extrafanart (rotating backgrounds) for skins that support it
-- Offer to delete content after playback
-- Backup your emby kodi profile. See the [Emby backup option](https://github.com/MediaBrowser/plugin.video.emby/wiki/Create-and-restore-from-backup)
-- and more...
+### 剧集选版
 
-### Install Emby for Kodi
-Get started with the [wiki guide](https://github.com/MediaBrowser/plugin.video.emby/wiki)
+接口前缀为 `/api/v1/episodes/`，适用于普通剧集视频。
 
-### Known limitations
-- ~~Chapter images are missing unless native playback mode is used.~~
-- Certain add-ons that depend on seeing where your content is located will not work unless native playback mode is selected.
+| 请求 | 行为 |
+| --- | --- |
+| `GET versions?path=…&mode=…` | 读取 Gen 剧集地址中的媒体源数据，返回 `versions` 列表和首选下标 `preferred`。版本列表按既定顺序提供来源 ID、版本名、路径信息、大小和宽度。该请求不播放媒体或创建播放会话。 |
+| `GET resolve?path=…&source=…` | 校验媒体源 ID 属于该集，生成绑定媒体源和本次会话的固定地址。无效地址或来源返回 `404`。 |
+| `HEAD / GET media/…` | `HEAD` 返回媒体类型，`GET` 重定向到已选媒体源。探测、正式打开和 CDN 重开可重复使用同一个固定地址。 |
 
-___
-### Help translate
-Check [Transifex](https://www.transifex.com/emby-for-kodi/emby-for-kodi/stringspo/) to help translate this project. Thank you!
+- `path` 是原 Gen 剧集代理地址的路径部分，`source` 来自版本列表中的媒体源 ID。两者作为查询参数时需要 URL 编码。列版本有 `select`、`play` 和 `next` 三种模式，分别用于显式选版、普通播放和自动下一集。单来源直接返回首选项。多来源显式选版由 Kodi 决定，普通播放按同季记忆和最高分辨率设置决定是否还需询问，自动下一集会给出可直接播放的来源。需要询问时 `preferred` 为 `null`。
+- Kodi 选定版本后，用固定地址进入通用 HTTP 预探测和播放。Gen 在收到 AVStart 后才登记实际会话和字幕。版本查询不会清除同季记忆，服务库未就绪时可跳过数据库查询。旧入口仍生成自己的会话 ID。
+- 插件识别到 Kodi fork 已接管剧集选版时，隐藏重复的 Gen 剧集右键菜单。其他 Kodi 或 CoreELEC 客户端仍可使用 Gen 的旧剧集选版流程，MV 的 Gen 选版入口也保留。
+
+### 电影与电视剧 Similar
+
+`GET /api/v1/items/similar?type=movie&dbid=123&limit=20`
+
+| 参数 | 含义 |
+| --- | --- |
+| `type` | 必填，`movie` 为电影，`tvshow` 为整部电视剧；不接受季、单集、普通视频或其他类型。 |
+| `dbid` | 必填，该条目的 Kodi 数据库 ID（正整数），不是 Emby ID、文件 ID 或 TMDb ID。 |
+| `limit` | 可选，Emby 返回的候选数量，默认 `20`，范围 `1`–`100`。过滤后数量可能更少，不额外补齐。 |
+
+Gen 从本地同步映射定位源条目所属的 Emby 服务器和 ID，以当前登录的 Emby 用户请求 `GET /Items/{Id}/Similar`。只保留相同媒体类型、已同步且 Kodi 本地记录仍存在的条目，排除当前条目并按 Kodi ID 去重，保留 Emby 返回的先后顺序。未同步到本机或只在其他服务器有映射的结果会被过滤。
+
+成功响应为 `200 application/json`：
+
+```json
+{"items":[{"type":"movie","dbid":456,"library":"影片remux"},{"type":"movie","dbid":789,"library":"影片 / 爱影"}]}
+```
+
+`library` 是该次推荐实际返回的 Emby 条目所关联的已同步媒体库名称；多个库名去重后用 ` / ` 连接，不按片名或 TMDb ID 查找其他副本。Kodi 将库名保留在对应推荐条目上，供界面随选择显示，无需再查询或校验媒体库。
+
+电视剧请求使用 `type=tvshow`，响应条目的 `type` 也为 `tvshow`。没有符合条件的推荐时返回 `200` 和 `{"items":[]}`。Kodi 按返回顺序从本地资料库加载标题、海报和播放信息；接口不返回服务器凭据、动态播放地址或未同步条目的元数据。
+
+| 状态码 | JSON `error` | 含义 |
+| --- | --- | --- |
+| `400` | `invalid_request` | 缺少参数、重复或未知参数、类型或数值不合法。 |
+| `404` | `not_synced` | 源条目在 Kodi 中不存在，或没有对应类型的 Emby 同步映射。 |
+| `404` | `not_found` | `/api/v1/items/` 下的接口路径不存在。 |
+| `405` | `method_not_allowed` | Similar 仅接受 `GET`；`HEAD` 不查询服务器，返回无响应体的错误状态。 |
+| `502` | `upstream_error` | Emby 查询失败或返回的数据格式无效。 |
+| `503` | `unavailable` | 数据库尚未就绪或无法读取、服务器离线、用户未就绪，或服务正在退出。 |
+| `500` | `internal_error` | 未预期的内部错误。 |
+
+这是独立的按需只读 API，不生成节点或 Kodi ListItem，不同步推荐关系，也不启动播放。每次调用使用独立的上游连接，不缓存结果。Gen 在连接重试及收发等待中检查 10 秒请求期限和 Kodi 客户端是否已断开。Kodi 侧应后台请求并区分空结果与错误；详情页按钮和结果界面由 Kodi fork 对接。
+
+## 修复
+
+- **实时观看和收藏更新。** Emby 的 `UserDataChanged` 缺少媒体类型时，允许事件进入队列并用本地映射补全类型，恢复已看、续播和收藏的实时同步。修正音乐专辑收藏更新的参数顺序。
+- **续播与外挂字幕。** 修正 Emby 时间刻度换算为秒后再扣减续播回退的顺序，保留已有 Kodi 书签。媒体源路径查询未命中时保留原有空结果约定，让 HTTP 重定向、编码地址和光盘包装地址继续通过已同步条目的身份回退。外挂字幕按 Kodi 当前语言和显示偏好选择，首选语言无匹配时可用未知语言字幕，仍无匹配时恢复原字幕与显示状态。支持“界面语言”、仅强制字幕及文件级设置。
+- **选版与实际播放来源。** 处理多个 `Type=Default` 来源时保留全部来源。选版容忍缺失宽度、视频流和文件大小。用实际媒体源 ID 或路径登记会话、章节及音视频和字幕轨映射，避免重定向后重复选版。旧剧集弹窗合并重复请求，并保留有时限的取消响应和断连处理。
+- **HTTP 与光盘路径。** 校验本地代理元数据和请求结构，无效媒体地址返回 `404`。分别解开 `bluray://` 和可选的 `udf://` 包装，保留原地址的 IPv6、转义、加号及签名参数。运行时拼接服务器地址时去掉尾斜杠。
+- **连接与时间。** 服务器断开后可重新连接 WebSocket，保留标准 Emby 投送和播放控制。Windows 转换历史日期失败时使用当前本地 UTC 偏移回退。
+- **上游流信息修复。** 保留 12.5.1 对 `DeleteStreams` 的约束。同步更新时有新流信息才清理旧流，只有元数据变化时可保留原流信息，实际删除条目时仍清理关联数据。
+
+## 同步、元数据与性能
+
+- **启动增量检查。** 最多用 4 条独立持久连接查询变化。各库及媒体类型的查询仍独立，结果按原顺序交给详情查询和串行入库。查询失败时保留 UTC 检查点，供下次启动重试。
+- **统一分页。** 全量和增量共用 `helper/paging.py`。默认每页 100 条，单集、歌曲／音频和音乐人每页 1,000 条，调用方显式上限仍生效。URI 长度阈值单独保持 1,500。
+- **减少同步开销。** 按实际任务数分组增量队列，启动增量只收集末块有效项，按 ID 出现次数整理批量详情请求的待处理条目并保留顺序。减少父级、人员映射和音乐人排序名的重复查询，减少 SQL 参数和 HTTP 响应收集时的元组复制。
+- **唯一 ID 和评分。** 电影、整剧优先用 TMDb 作为默认唯一 ID，单集优先用 TVDb。Emby 社区评分写入通用默认评分，更新时保留 Kodi 用户评分及其他具名评分。移除将社区评分标记为 IMDb 和同步影评人评分的选项。
+- **演职人员。** 电影和整剧保留前 20 位演员及客串，单集省去演员关联，导演和编剧继续完整同步。人员由作品引用建立，省去全局人员名录预导入。已保留人员的资料和人像仍可增量更新。
+- **Studio。** 只同步整剧关联且有主图或缩略图的公司，使用 PNG 保留透明背景。公司或图片变化时更新相应记录和缓存，其他媒体类型省去 Studio 同步。
+- **图片与章节。** 海报、人物图、Studio 和章节图由 Kodi 按需加载，Gen 按用途限制尺寸，图片质量参数固定为 90。海报上限为 480×720，章节图为 640×360，Logo 和 Studio 使用 PNG。保留图片变更后的缓存失效处理及章节时间点、片头片尾标记。移除收藏和章节图片叠字、服务器 CoverArt 增强、整剧海报覆盖单集海报及手动或自动的批量图片预缓存。
+- **原生资料库入口。** 保留已同步电影和剧集库的根索引、库标签及封面，供 Kodi 的媒体库入口使用。保留 Tag、Genre、MusicGenre 和作品关系，省去其专用本地图标。播放列表继续生成原生 M3U，收藏入口可指向该文件。
+- **收藏范围。** 保留电影、普通视频、整剧、季、单集、MV、歌曲、专辑、音乐人、合集和播放列表的收藏同步。人物、Studio、分类和标签收藏已移除，相关资料和作品关联仍可同步。
+
+## 精简
+
+- 移除插件自己的服务器动态浏览、搜索、推荐与相似内容的动态列表、自建分类节点和每库 XSP 快捷列表。日常浏览使用 Kodi 原生资料库，Similar 仅通过上述按需 API 提供已同步条目的 ID 和媒体库名。
+- 移除一起看、组队控制及 Kodi 向其他设备发起播放的入口。Emby 客户端向 Kodi 发起的普通投送和远程播放控制保留。
+- 移除 Live TV、PVR、IPTV Simple、频道和录制，照片、相册和幻灯片，离线媒体下载，主题音乐与视频，影院插播、预告片和附加花絮。电视剧 Season 0 特别篇仍按普通剧集同步。
+- 移除旧本地路径模式、WebDAV 视频模式、路径替换、转码和 YouTube 网页地址转换。仍可播放服务器直接提供的 HLS 媒体地址。
+- 移除主动删除服务器媒体、备份恢复、代码自动回滚、独立去重工具、合集转标签、电影关联剧集、MV 与歌曲的额外关联，以及相关菜单和设置。服务器通知条目已删除时，仍清理对应的本地资料和缓存。
+- 清理跳转、随机播放、插件自有收藏操作、连接和新内容通知、自动重载皮肤，以及已移除功能的事件、队列、数据库辅助代码和资源。精简暂停同步规则，保留播放、播放状态切换、扫描媒体库和生成视频预览图的暂停选项。移除插件的 HTTP/2 开关和专用流量标记，保留连接超时、TLS 校验及库管理设置。
+- 仅保留英语和简体中文资源，移除未使用的截图、横幅、动态图标、字体和重复的播放对话框。更新记录集中维护在本 README。
+
+## 安装
+
+从官方 12.5.1 切换到此定制版时使用全新安装并重新同步媒体库。在已安装的定制版上更新剧集预选和 Similar 接口，无需为了接口重新同步。依赖原始文件系统路径的第三方插件可能无法直接处理 HTTP 播放地址。
+
+[安装指南](https://github.com/MediaBrowser/plugin.video.emby/wiki) · [Emby for Kodi 论坛](https://emby.media/community/index.php?/forum/99-kodi/) · [许可证](LICENSE.txt)

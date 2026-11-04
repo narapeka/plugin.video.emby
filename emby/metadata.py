@@ -1,12 +1,55 @@
 import xbmc
-from helper import utils
+from helper import versions, artwork
 
-MediaIdMapping = {"m": "movie", "e": "episode", "M": "musicvideo", "p": "picture", "a": "song", "t": "tvchannel", "i": "movie", "T": "video", "v": "video", "c": "channel"} # T=trailer, i=iso
-EmbyArtworkIDs = {"p": "Primary", "a": "Art", "b": "Banner", "d": "Disc", "l": "Logo", "t": "Thumb", "B": "Backdrop", "c": "Chapter"}
-MediaSourceContextMenu = -1
+MediaIdMapping = {"m": "movie", "e": "episode", "M": "musicvideo", "p": "picture", "a": "song", "i": "movie", "v": "video"} # i=iso
+SelectedIsoFilename = "selected.iso"
+EpisodeVersionApi = "/api/v1/episodes/"
+EpisodeMediaPrefix = EpisodeVersionApi + "media/"
+MediaSourceContextMenu = None
+
+
+def load_episode_versions(Payload):
+    MetaData = load_MetaData(Payload, False, False)
+    return MetaData if MetaData.get('KodiType') == 'episode' else {}
+
+
+def load_selected_episode(Path):
+    Path = Path.split('|', 1)[0]
+    if not Path.startswith(EpisodeMediaPrefix):
+        return {}
+
+    Session, _, Selection = Path[len(EpisodeMediaPrefix):].partition('/')
+    SourceId, _, Payload = Selection.partition('/')
+    MetaData = load_episode_versions('/' + Payload)
+    if not MetaData:
+        return {}
+
+    for Index, Source in enumerate(MetaData['MediaSources']):
+        if Source[0]['Id'].encode('utf-8').hex() == SourceId:
+            MetaData.update(SelectionIndexMediaSource=Index, PlaySessionId=Session,
+                            EpisodeSelection=True, PreselectedEpisode=True, VersionSelectionDone=True)
+            return MetaData
+
+    return {}
+
+def selected_iso_payload(Payload, SourceRecord):
+    Prefix, MetaFolder, _ = Payload.rsplit('/', 2)
+    Header = MetaFolder.rsplit('-', 1)[0]
+    return f"{Prefix}/{Header}-{SourceRecord.encode('utf-8').hex().upper()}/{SelectedIsoFilename}"
 
 def load_MetaData(Payload, isPicture, isAudio):
-    MetaData = {'isDynamic': False, 'isHttp': False}
+    try:
+        return _load_MetaData(Payload, isPicture, isAudio)
+    except (IndexError, KeyError, TypeError, ValueError, OverflowError) as Error:
+        xbmc.log(f"EMBY.emby.metadata: Invalid proxy metadata ({type(Error).__name__})", xbmc.LOGDEBUG)
+        return {}
+
+
+def _load_MetaData(Payload, isPicture, isAudio):
+    if not isinstance(Payload, str) or not Payload.startswith('/'):
+        raise ValueError("Invalid proxy path")
+
+    MetaData = {'isDynamic': False}
     PayloadMod = Payload
 
     if PayloadMod.startswith("/dynamic/"):
@@ -14,7 +57,6 @@ def load_MetaData(Payload, isPicture, isAudio):
         PayloadMod = PayloadMod.replace("/dynamic", "")
 
     if PayloadMod.startswith("/http/"):
-        MetaData['isHttp'] = True
         PayloadMod = PayloadMod.replace("/http", "")
 
     PayloadSplit = PayloadMod.split("/")
@@ -23,6 +65,10 @@ def load_MetaData(Payload, isPicture, isAudio):
     if isPicture:  # Image/picture
         MetaData["PlayerId"] = -1
         Data = PayloadMod.split('/', 3)
+
+        if len(Data) < 4:
+            raise ValueError("Incomplete picture path")
+
         PosSlash = Data[3].find("/")
 
         if PosSlash != -1:
@@ -33,14 +79,15 @@ def load_MetaData(Payload, isPicture, isAudio):
         Data = Data.split("-") # MetaData
 
         if len(Data) < 7:
-            xbmc.log(f"EMBY.hooks.webservice: Invalid picture {PayloadMod}", 2) # LOGERROR
             return {}
 
         ServerId = PayloadSplit[2]
         EmbyId = Data[1]
-        MetaData['Overlay'] = utils.image_text_decode(Data[5])
-        _, Format = utils.get_MimeType(Data[6])
-        MetaData.update({'ImageIndex': Data[2], 'ImageType': EmbyArtworkIDs[Data[3]], 'ImageTag': Data[4], 'KodiType': "picture", 'Format': Format})
+        int(Data[2]) # Validate the image index before sending it to Emby.
+        Profile, Format = Data[6].rsplit(".", 1)
+        if Format != artwork.PROFILES[Profile][2]:
+            raise ValueError("Invalid picture format")
+        MetaData.update({'ImageIndex': Data[2], 'ImageType': artwork.IMAGE_TYPES[Data[3]], 'ImageTag': Data[4], 'KodiType': "picture", 'Format': Format, 'ImageProfile': Profile})
     else:
         if isAudio:
             MetaData["PlayerId"] = 0
@@ -49,11 +96,20 @@ def load_MetaData(Payload, isPicture, isAudio):
             MetaData["PlayerId"] = 1
             MetaData["EmbyStreamType"] = "videos"
 
+        if len(PayloadSplit) < 8:
+            raise ValueError("Incomplete media path")
+
         EmbyId = PayloadSplit[-3]
         ServerId = PayloadSplit[-6]
         Data = PayloadSplit[-2]
         Data = Data.split("-")
+
+        if len(Data) < 5 or not Data[4]:
+            raise ValueError("Incomplete media metadata")
+
         Data[4] = bytes.fromhex(Data[4]).decode('utf-8')
+        int(Data[1])
+        int(Data[2])
         MetaData.update({'KodiId': Data[1], 'KodiFileId': Data[2]})
 
         # Extract metatdata, sperators are <>, ><, <<, :
@@ -69,6 +125,11 @@ def load_MetaData(Payload, isPicture, isAudio):
             for IndexSub, MediaData in enumerate(MediaDatas):
                 if IndexSub == 0:
                     MediaSourceInfos = MediaData.split(":")
+
+                    if len(MediaSourceInfos) < 4:
+                        raise ValueError("Incomplete media source")
+
+                    MediaSources[Index][0].update({'IntroStartPositionTicks': 0, 'IntroEndPositionTicks': 0, 'CreditsPositionTicks': 0, 'IsRemote': False})
                     MediaSources[Index][0]['IndexMappingVideoEmby'] = {}
                     MediaSources[Index][0]['IndexMappingAudioEmby'] = {}
                     MediaSources[Index][0]['IndexMappingSubtitleEmby'] = {}
@@ -93,12 +154,18 @@ def load_MetaData(Payload, isPicture, isAudio):
                             MediaSources[Index][0]['CreditsPositionTicks'] = int(MediaSourceInfo)
                         elif MediaSourceInfoIndex == 7:
                             MediaSources[Index][0]['IsRemote'] = bool(int(MediaSourceInfo))
+                        elif MediaSourceInfoIndex == 8 and MediaSourceInfo == '1':
+                            if MediaSources[Index][0]['Path'].lower().startswith(('http://', 'https://')):
+                                MediaSources[Index][0]['HttpIsoRecord'] = MetadataSub
                 elif IndexSub == 1 and MediaData:
                     VideoStreams = MediaData.split("><")
 
                     for VideoStreamIndex, VideoStream in enumerate(VideoStreams):
-                        MediaSources[Index][1].append({})
+                        MediaSources[Index][1].append({'Width': 0})
                         VideoStreamInfos = VideoStream.split(":")
+
+                        if len(VideoStreamInfos) < 3:
+                            raise ValueError("Incomplete video stream")
 
                         for VideoStreamInfoIndex, VideoStreamInfo in enumerate(VideoStreamInfos):
                             if VideoStreamInfoIndex == 0:
@@ -119,6 +186,9 @@ def load_MetaData(Payload, isPicture, isAudio):
                         MediaSources[Index][2].append({})
                         AudioStreamInfos = AudioStream.split(":")
 
+                        if len(AudioStreamInfos) < 4:
+                            raise ValueError("Incomplete audio stream")
+
                         for AudioStreamInfoIndex, AudioStreamInfo in enumerate(AudioStreamInfos):
                             if AudioStreamInfoIndex == 0:
                                 MediaSources[Index][2][AudioStreamIndex]['DisplayTitle'] = AudioStreamInfo
@@ -135,8 +205,11 @@ def load_MetaData(Payload, isPicture, isAudio):
                     SubtitleStreams = MediaData.split("><")
 
                     for SubtitleStreamIndex, SubtitleStream in enumerate(SubtitleStreams):
-                        MediaSources[Index][3].append({})
+                        MediaSources[Index][3].append({'Forced': False})
                         SubtitleStreamInfos = SubtitleStream.split(":")
+
+                        if len(SubtitleStreamInfos) < 5:
+                            raise ValueError("Incomplete subtitle stream")
 
                         for SubtitleStreamInfoIndex, SubtitleStreamInfo in enumerate(SubtitleStreamInfos):
                             if SubtitleStreamInfoIndex == 0:
@@ -155,5 +228,11 @@ def load_MetaData(Payload, isPicture, isAudio):
                             elif SubtitleStreamInfoIndex == 5:
                                 MediaSources[Index][3][SubtitleStreamIndex]['Forced'] = bool(int(SubtitleStreamInfo))
 
-    MetaData.update({'MediaSources': MediaSources, 'Payload': Payload, 'KodiType': MediaIdMapping[Data[0]], 'ServerId': ServerId, 'EmbyId': EmbyId, 'MediaType': Data[0], "DelayedContentSet": False, "SelectionIndexMediaSource": 0, "SelectionIndexVideoStream": 0, "SelectionIndexAudioStream": 0, "SelectionIndexSubtitleStream": -1})
+    if (Data[0] == 'p') != isPicture:
+        raise ValueError("Mismatched picture metadata")
+
+    if not ServerId or not EmbyId:
+        raise ValueError("Missing server or item identity")
+
+    MetaData.update({'MediaSources': versions.sort_sources(MediaSources), 'Payload': Payload, 'KodiType': MediaIdMapping[Data[0]], 'ServerId': ServerId, 'EmbyId': EmbyId, 'MediaType': Data[0], "DelayedContentSet": False, "SelectionIndexMediaSource": 0})
     return MetaData

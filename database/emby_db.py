@@ -1,9 +1,9 @@
 import xbmc
-from helper import utils
+from helper import utils, versions
 from . import common_db
 
-EmbyTypes = ("Movie", "Series", "Season", "Episode", "Audio", "MusicAlbum", "MusicArtist", "Genre", "MusicGenre", "Video", "MusicVideo", "BoxSet", "Tag", "Studio", "Playlist", "Person", "Trailer", "PhotoAlbum", "Photo", "Folder")
-EmbyFolderTypes = ("Series", "Season", "MusicAlbum", "MusicArtist", "Genre", "MusicGenre", "BoxSet", "Tag", "Studio", "Playlist", "Person", "PhotoAlbum", "Photo", "Folder")
+EmbyTypes = ("Movie", "Series", "Season", "Episode", "Audio", "MusicAlbum", "MusicArtist", "Genre", "MusicGenre", "Video", "MusicVideo", "BoxSet", "Tag", "Studio", "Playlist", "Person", "Folder")
+EmbyFolderTypes = ("Series", "Season", "MusicAlbum", "MusicArtist", "Genre", "MusicGenre", "BoxSet", "Tag", "Studio", "Playlist", "Person", "Folder")
 EmbyTypesWithKodiId = ("Movie", "Series", "Season", "Episode", "Audio", "MusicAlbum", "MusicArtist", "Genre", "MusicGenre", "Video", "MusicVideo", "BoxSet", "Tag", "Studio", "Playlist", "Person")
 
 class EmbyDatabase:
@@ -22,7 +22,7 @@ class EmbyDatabase:
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Person (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Folder (EmbyId INTEGER PRIMARY KEY, EmbyFolder TEXT COLLATE NOCASE, EmbyMetaData TEXT COLLATE NOCASE) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Movie (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, KodiFileId INTEGER, EmbyPresentationKey TEXT COLLATE NOCASE, EmbyFolder TEXT COLLATE NOCASE, KodiPathId INTEGER) WITHOUT ROWID")
-            self.cursor.execute("CREATE TABLE IF NOT EXISTS Video (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, KodiFileId INTEGER, EmbyPresentationKey TEXT COLLATE NOCASE, EmbyFolder TEXT COLLATE NOCASE, KodiPathId INTEGER, EmbyParentId INTEGER, EmbyExtraType TEXT COLLATE NOCASE, KodiParentId INTEGER, EmbyParentType TEXT COLLATE NOCASE, EmbyMetaData TEXT COLLATE NOCASE) WITHOUT ROWID")
+            self.cursor.execute("CREATE TABLE IF NOT EXISTS Video (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, KodiFileId INTEGER, EmbyPresentationKey TEXT COLLATE NOCASE, EmbyFolder TEXT COLLATE NOCASE, KodiPathId INTEGER, EmbyParentId INTEGER) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS BoxSet (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, KodiParentId TEXT COLLATE NOCASE) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Series (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, EmbyPresentationKey TEXT COLLATE NOCASE, KodiPathId INTEGER) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Season (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, KodiParentId INTEGER, EmbyPresentationKey TEXT COLLATE NOCASE) WITHOUT ROWID")
@@ -31,14 +31,14 @@ class EmbyDatabase:
             self.cursor.execute("CREATE TABLE IF NOT EXISTS MusicGenre (EmbyId INTEGER PRIMARY KEY, KodiId TEXT COLLATE NOCASE, EmbyFavourite BOOL, LibraryIds TEXT COLLATE NOCASE, EmbyArtwork TEXT COLLATE NOCASE) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS MusicVideo (EmbyId INTEGER PRIMARY KEY, KodiId TEXT COLLATE NOCASE, EmbyFavourite BOOL, KodiFileId TEXT COLLATE NOCASE, EmbyPresentationKey TEXT COLLATE NOCASE, EmbyFolder TEXT COLLATE NOCASE, KodiPathId TEXT COLLATE NOCASE, LibraryIds TEXT COLLATE NOCASE) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS MusicAlbum (EmbyId INTEGER PRIMARY KEY, KodiId TEXT COLLATE NOCASE, EmbyFavourite BOOL, LibraryIds TEXT COLLATE NOCASE) WITHOUT ROWID")
-            self.cursor.execute("CREATE TABLE IF NOT EXISTS Audio (EmbyId INTEGER PRIMARY KEY, KodiId TEXT COLLATE NOCASE, EmbyFavourite BOOL, EmbyFolder TEXT COLLATE NOCASE, KodiPathId INTEGER, LibraryIds TEXT COLLATE NOCASE, EmbyExtraType TEXT COLLATE NOCASE, KodiParentId INTEGER, EmbyParentType TEXT COLLATE NOCASE, EmbyMetaData TEXT COLLATE NOCASE, EmbyParentId INTEGER) WITHOUT ROWID")
+            self.cursor.execute("CREATE TABLE IF NOT EXISTS Audio (EmbyId INTEGER PRIMARY KEY, KodiId TEXT COLLATE NOCASE, EmbyFavourite BOOL, EmbyFolder TEXT COLLATE NOCASE, KodiPathId INTEGER, LibraryIds TEXT COLLATE NOCASE, EmbyParentId INTEGER) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Playlist (EmbyId INTEGER PRIMARY KEY, KodiId TEXT COLLATE NOCASE, EmbyFavourite BOOL, EmbyArtwork TEXT COLLATE NOCASE, EmbyLinkedId TEXT COLLATE NOCASE, Name TEXT COLLATE NOCASE) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS MediaSources (EmbyId INTEGER, MediaSourceId TEXT COLLATE NOCASE, Path TEXT COLLATE NOCASE, Name TEXT COLLATE NOCASE, Size INTEGER, IntroStart INTEGER, IntroEnd INTEGER, CreditsStart INTEGER, PRIMARY KEY(EmbyId, MediaSourceId))")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS VideoStreams (EmbyId INTEGER, MediaSourceId TEXT COLLATE NOCASE, EmbyIndex INTEGER, Codec TEXT COLLATE NOCASE, BitRate INTEGER, Width INTEGER, KodiIndex INTEGER, PRIMARY KEY(EmbyId, MediaSourceId, EmbyIndex))")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS AudioStreams (EmbyId INTEGER, MediaSourceId TEXT COLLATE NOCASE, EmbyIndex INTEGER, DisplayTitle TEXT COLLATE NOCASE, Codec TEXT COLLATE NOCASE, BitRate INTEGER, KodiIndex INTEGER, PRIMARY KEY(EmbyId, MediaSourceId, EmbyIndex))")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS SubtitleStreams (EmbyId INTEGER, MediaSourceId TEXT COLLATE NOCASE, EmbyIndex INTEGER, Codec TEXT COLLATE NOCASE, Language TEXT COLLATE NOCASE, DisplayTitle TEXT COLLATE NOCASE, External BOOL, KodiIndex INTEGER, PRIMARY KEY(EmbyId, MediaSourceId, EmbyIndex))")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS RemoveItems (EmbyId INTEGER, EmbyLibraryId TEXT COLLATE NOCASE, PRIMARY KEY (EmbyId, EmbyLibraryId))")
-            self.cursor.execute("CREATE TABLE IF NOT EXISTS UpdateItems (EmbyId INTEGER, EmbyRequestContent TEXT COLLATE NOCASE, EmbyLibraryId TEXT COLLATE NOCASE, KodiDB TEXT COLLATE NOCASE, EmbyParentId INTEGER, EmbyParentType TEXT COLLATE NOCASE, KodiParentId INTEGER, PRIMARY KEY(EmbyId, KodiDB, EmbyParentId))")
+            self.cursor.execute("CREATE TABLE IF NOT EXISTS UpdateItems (EmbyId INTEGER, EmbyRequestContent TEXT COLLATE NOCASE, EmbyLibraryId TEXT COLLATE NOCASE, KodiDB TEXT COLLATE NOCASE, PRIMARY KEY(EmbyId, KodiDB))")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS UserdataItems (EmbyId INTEGER PRIMARY KEY, EmbyType TEXT COLLATE NOCASE, EmbyPlaybackPositionTicks INT, EmbyPlayCount INT, EmbyIsFavorite BOOL, EmbyPlayed BOOL, EmbyLastPlayedDate TEXT COLLATE NOCASE, PlayedPercentage INT, UnplayedItemCount INT) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS LibrarySynced (EmbyLibraryId TEXT COLLATE NOCASE, EmbyLibraryName TEXT COLLATE NOCASE, EmbyType TEXT COLLATE NOCASE, KodiDBs TEXT COLLATE NOCASE, PRIMARY KEY(EmbyLibraryId, EmbyLibraryName, EmbyType))")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS LibrarySyncedMirrow (EmbyLibraryId TEXT COLLATE NOCASE, EmbyLibraryName TEXT COLLATE NOCASE, EmbyType TEXT COLLATE NOCASE, KodiDBs TEXT COLLATE NOCASE, PRIMARY KEY(EmbyLibraryId, EmbyLibraryName, EmbyType))")
@@ -47,261 +47,198 @@ class EmbyDatabase:
             self.cursor.execute("CREATE TABLE IF NOT EXISTS LibraryAdd (EmbyLibraryId TEXT COLLATE NOCASE, EmbyLibraryName TEXT COLLATE NOCASE, EmbyType TEXT COLLATE NOCASE, KodiDBs TEXT COLLATE NOCASE, PRIMARY KEY(EmbyLibraryId, EmbyLibraryName, EmbyType, KodiDBs))")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS LibraryRemove (EmbyLibraryId TEXT COLLATE NOCASE PRIMARY KEY, EmbyLibraryName TEXT COLLATE NOCASE)")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS EmbyLibraryMapping (EmbyLibraryId TEXT COLLATE NOCASE, EmbyId INTEGER, EmbyMusicAlbumId INTEGER NOT NULL DEFAULT 0, EmbyMusicArtistId INTEGER NOT NULL DEFAULT 0, EmbyMusicGenreId INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (EmbyLibraryId, EmbyId, EmbyMusicAlbumId, EmbyMusicArtistId, EmbyMusicGenreId))")
-            self.cursor.execute("CREATE TABLE IF NOT EXISTS DownloadItems (EmbyId INTEGER PRIMARY KEY, KodiPathIdBeforeDownload INTEGER, KodiFileId INTEGER, KodiId INTEGER, KodiType TEXT COLLATE NOCASE) WITHOUT ROWID")
-            self.cursor.execute("CREATE TABLE IF NOT EXISTS Trailer (EmbyId INTEGER PRIMARY KEY, EmbyPresentationKey TEXT COLLATE NOCASE, EmbyFolder TEXT COLLATE NOCASE, EmbyParentId INTEGER, EmbyExtraType TEXT COLLATE NOCASE, KodiParentId INTEGER, EmbyParentType TEXT COLLATE NOCASE, KodiPath TEXT COLLATE NOCASE, EmbyMetaData TEXT COLLATE NOCASE) WITHOUT ROWID")
-            self.cursor.execute("CREATE TABLE IF NOT EXISTS PhotoAlbum (EmbyId INTEGER PRIMARY KEY, EmbyPresentationKey TEXT COLLATE NOCASE, EmbyFolder TEXT COLLATE NOCASE, EmbyParentId INTEGER, KodiPath TEXT COLLATE NOCASE, EmbyMetaData TEXT COLLATE NOCASE) WITHOUT ROWID")
-            self.cursor.execute("CREATE TABLE IF NOT EXISTS Photo (EmbyId INTEGER PRIMARY KEY, EmbyPresentationKey TEXT COLLATE NOCASE, EmbyFolder TEXT COLLATE NOCASE, EmbyParentId INTEGER, KodiPath TEXT COLLATE NOCASE, EmbyMetaData TEXT COLLATE NOCASE) WITHOUT ROWID")
 
             # Verify tables
-            self.cursor.execute("SELECT name FROM pragma_table_info('Photo')")
-            Cols = self.cursor.fetchall()
-
-            if Cols != [('EmbyId',), ('EmbyPresentationKey',), ('EmbyFolder',), ('EmbyParentId',), ('KodiPath',), ('EmbyMetaData',)]:
-                xbmc.log(f"EMBY.database.emby_db: Photo invalid: {Cols}", 3) # LOGERROR
-                Invalid = True
-
-            self.cursor.execute("SELECT name FROM pragma_table_info('Trailer')")
-            Cols = self.cursor.fetchall()
-
-            if Cols != [('EmbyId',), ('EmbyPresentationKey',), ('EmbyFolder',), ('EmbyParentId',), ('EmbyExtraType',), ('KodiParentId',), ('EmbyParentType',), ('KodiPath',), ('EmbyMetaData',)]:
-                xbmc.log(f"EMBY.database.emby_db: Trailer invalid: {Cols}", 3) # LOGERROR
-                Invalid = True
-
-            self.cursor.execute("SELECT name FROM pragma_table_info('PhotoAlbum')")
-            Cols = self.cursor.fetchall()
-
-            if Cols != [('EmbyId',), ('EmbyPresentationKey',), ('EmbyFolder',), ('EmbyParentId',), ('KodiPath',), ('EmbyMetaData',)]:
-                xbmc.log(f"EMBY.database.emby_db: PhotoAlbum invalid: {Cols}", 3) # LOGERROR
-                Invalid = True
-
             self.cursor.execute("SELECT name FROM pragma_table_info('Genre')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('EmbyArtwork',)]:
-                xbmc.log(f"EMBY.database.emby_db: Genre invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Studio')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('EmbyArtwork',)]:
-                xbmc.log(f"EMBY.database.emby_db: Studio invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Tag')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('Memo',), ('EmbyArtwork',)]:
-                xbmc.log(f"EMBY.database.emby_db: Tag invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Person')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',)]:
-                xbmc.log(f"EMBY.database.emby_db: Person invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Folder')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('EmbyFolder',), ('EmbyMetaData',)]:
-                xbmc.log(f"EMBY.database.emby_db: Folder invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Movie')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('KodiFileId',), ('EmbyPresentationKey',), ('EmbyFolder',), ('KodiPathId',)]:
-                xbmc.log(f"EMBY.database.emby_db: Movie invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Video')")
             Cols = self.cursor.fetchall()
 
-            if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('KodiFileId',), ('EmbyPresentationKey',), ('EmbyFolder',), ('KodiPathId',), ('EmbyParentId',), ('EmbyExtraType',), ('KodiParentId',), ('EmbyParentType',), ('EmbyMetaData',)]:
-                xbmc.log(f"EMBY.database.emby_db: Video invalid: {Cols}", 3) # LOGERROR
+            if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('KodiFileId',), ('EmbyPresentationKey',), ('EmbyFolder',), ('KodiPathId',), ('EmbyParentId',)]:
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('BoxSet')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('KodiParentId',)]:
-                xbmc.log(f"EMBY.database.emby_db: BoxSet invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Series')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('EmbyPresentationKey',), ('KodiPathId',)]:
-                xbmc.log(f"EMBY.database.emby_db: Series invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Season')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('KodiParentId',), ('EmbyPresentationKey',)]:
-                xbmc.log(f"EMBY.database.emby_db: Season invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Episode')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('KodiFileId',), ('KodiParentId',), ('EmbyPresentationKey',), ('EmbyFolder',), ('KodiPathId',)]:
-                xbmc.log(f"EMBY.database.emby_db: Episode invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('MusicArtist')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('LibraryIds',)]:
-                xbmc.log(f"EMBY.database.emby_db: MusicArtist invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('MusicGenre')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('LibraryIds',), ('EmbyArtwork',)]:
-                xbmc.log(f"EMBY.database.emby_db: MusicGenre invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('MusicVideo')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('KodiFileId',), ('EmbyPresentationKey',), ('EmbyFolder',), ('KodiPathId',), ('LibraryIds',)]:
-                xbmc.log(f"EMBY.database.emby_db: MusicVideo invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('MusicAlbum')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('LibraryIds',)]:
-                xbmc.log(f"EMBY.database.emby_db: MusicAlbum invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Audio')")
             Cols = self.cursor.fetchall()
 
-            if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('EmbyFolder',), ('KodiPathId',), ('LibraryIds',), ('EmbyExtraType',), ('KodiParentId',), ('EmbyParentType',), ('EmbyMetaData',), ('EmbyParentId',)]:
-                xbmc.log(f"EMBY.database.emby_db: Audio invalid: {Cols}", 3) # LOGERROR
+            if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('EmbyFolder',), ('KodiPathId',), ('LibraryIds',), ('EmbyParentId',)]:
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Playlist')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('EmbyArtwork',), ('EmbyLinkedId',), ('Name',)]:
-                xbmc.log(f"EMBY.database.emby_db: Playlist invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('MediaSources')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('MediaSourceId',), ('Path',), ('Name',), ('Size',), ('IntroStart',), ('IntroEnd',), ('CreditsStart',)]:
-                xbmc.log(f"EMBY.database.emby_db: MediaSources invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('VideoStreams')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('MediaSourceId',), ('EmbyIndex',), ('Codec',), ('BitRate',), ('Width',), ('KodiIndex',)]:
-                xbmc.log(f"EMBY.database.emby_db: VideoStreams invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('AudioStreams')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('MediaSourceId',), ('EmbyIndex',), ('DisplayTitle',), ('Codec',), ('BitRate',), ('KodiIndex',)]:
-                xbmc.log(f"EMBY.database.emby_db: AudioStreams invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('SubtitleStreams')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('MediaSourceId',), ('EmbyIndex',), ('Codec',), ('Language',), ('DisplayTitle',), ('External',), ('KodiIndex',)]:
-                xbmc.log(f"EMBY.database.emby_db: SubtitleStreams invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('RemoveItems')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('EmbyLibraryId',)]:
-                xbmc.log(f"EMBY.database.emby_db: RemoveItems invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('UpdateItems')")
             Cols = self.cursor.fetchall()
 
-            if Cols != [('EmbyId',), ('EmbyRequestContent',), ('EmbyLibraryId',), ('KodiDB',), ('EmbyParentId',) , ('EmbyParentType',) , ('KodiParentId',)]:
-                xbmc.log(f"EMBY.database.emby_db: UpdateItems invalid: {Cols}", 3) # LOGERROR
+            if Cols != [('EmbyId',), ('EmbyRequestContent',), ('EmbyLibraryId',), ('KodiDB',)]:
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('UserdataItems')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyId',), ('EmbyType',), ('EmbyPlaybackPositionTicks',), ('EmbyPlayCount',), ('EmbyIsFavorite',), ('EmbyPlayed',), ('EmbyLastPlayedDate',), ('PlayedPercentage',), ('UnplayedItemCount',)]:
-                xbmc.log(f"EMBY.database.emby_db: UserdataItems invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('LibrarySynced')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyLibraryId',), ('EmbyLibraryName',), ('EmbyType',), ('KodiDBs',)]:
-                xbmc.log(f"EMBY.database.emby_db: LibrarySynced invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('LibrarySyncedMirrow')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyLibraryId',), ('EmbyLibraryName',), ('EmbyType',), ('KodiDBs',)]:
-                xbmc.log(f"EMBY.database.emby_db: LibrarySyncedMirrow invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('LastIncrementalSync')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('Date',)]:
-                xbmc.log(f"EMBY.database.emby_db: LastIncrementalSync invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('LastIncrementalSyncStart')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('Date',)]:
-                xbmc.log(f"EMBY.database.emby_db: LastIncrementalSyncStart invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('LibraryAdd')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyLibraryId',), ('EmbyLibraryName',), ('EmbyType',), ('KodiDBs',)]:
-                xbmc.log(f"EMBY.database.emby_db: LibraryAdd invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('LibraryRemove')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyLibraryId',), ('EmbyLibraryName',)]:
-                xbmc.log(f"EMBY.database.emby_db: LibraryRemove invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('EmbyLibraryMapping')")
             Cols = self.cursor.fetchall()
 
             if Cols != [('EmbyLibraryId',), ('EmbyId',), ('EmbyMusicAlbumId',), ('EmbyMusicArtistId',), ('EmbyMusicGenreId',)]:
-                xbmc.log(f"EMBY.database.emby_db: EmbyLibraryMapping invalid: {Cols}", 3) # LOGERROR
-                Invalid = True
-
-            self.cursor.execute("SELECT name FROM pragma_table_info('DownloadItems')")
-            Cols = self.cursor.fetchall()
-
-            if Cols != [('EmbyId',), ('KodiPathIdBeforeDownload',), ('KodiFileId',), ('KodiId',), ('KodiType',)]:
-                xbmc.log(f"EMBY.database.emby_db: DownloadItems invalid: {Cols}", 3) # LOGERROR
                 Invalid = True
 
             if not Invalid:
                 self.add_Index()
         except Exception as Error: # Database invalid! Database reset mandatory
-            xbmc.log(f"EMBY.database.emby_db: Database invalid, performing reset: {Error}", 3) # LOGERROR
+            xbmc.log(f"EMBY.database.emby_db: Cannot initialize the Emby database: {Error}", xbmc.LOGERROR)
             Invalid = True
 
         if Invalid:
@@ -332,20 +269,13 @@ class EmbyDatabase:
                 self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Video_KodiFileId on Video (KodiFileId)")
                 self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Tag_Memo on Tag (Memo)")
                 self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Audio_EmbyParentId on Audio (EmbyParentId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Trailer_EmbyParentId_EmbyExtraType on Trailer (EmbyParentId, EmbyExtraType)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Audio_EmbyParentType_KodiParentId on Audio (EmbyParentType, KodiParentId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Video_EmbyParentType_KodiParentId on Video (EmbyParentType, KodiParentId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Audio_EmbyExtraType on Audio (EmbyExtraType)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Video_EmbyExtraType on Video (EmbyExtraType)")
                 self.cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_RemoveItems_EmbyId_NullLibrary ON RemoveItems (EmbyId) WHERE EmbyLibraryId IS NULL")
-                self.cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UpdateItems_EmbyId_KodiDB_NullParent ON UpdateItems (EmbyId, KodiDB) WHERE EmbyParentId IS NULL")
-                self.cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UpdateItems_KodiDB_EmbyParentId_NullId ON UpdateItems (KodiDB, EmbyParentId) WHERE EmbyId IS NULL")
-                self.cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UpdateItems_EmbyId_NullKodiDB_NullParent ON UpdateItems (EmbyId) WHERE KodiDB IS NULL AND EmbyParentId IS NULL")
+                self.cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UpdateItems_EmbyId_NullKodiDB ON UpdateItems (EmbyId) WHERE KodiDB IS NULL")
                 self.cursor.execute("ANALYZE")
                 self.cursor.connection.commit()
                 self.cursor.execute("BEGIN IMMEDIATE TRANSACTION")
         except Exception as Error:
-            xbmc.log(f"EMBY.database.emby_db: Database add index error: {Error}", 3) # LOGERROR
+            xbmc.log(f"EMBY.database.emby_db: Database add index error: {Error}", xbmc.LOGERROR)
 
     def delete_Index(self):
         try: # xbox issue
@@ -359,47 +289,13 @@ class EmbyDatabase:
             self.cursor.execute("DROP INDEX IF EXISTS idx_Audio_EmbyFolder")
             self.cursor.execute("DROP INDEX IF EXISTS idx_Video_KodiFileId")
             self.cursor.execute("DROP INDEX IF EXISTS idx_Audio_EmbyParentId")
-            self.cursor.execute("DROP INDEX IF EXISTS idx_Trailer_EmbyParentId_EmbyExtraType")
-            self.cursor.execute("DROP INDEX IF EXISTS idx_Audio_EmbyParentType_KodiParentId")
-            self.cursor.execute("DROP INDEX IF EXISTS idx_Video_EmbyParentType_KodiParentId")
-            self.cursor.execute("DROP INDEX IF EXISTS idx_Audio_EmbyExtraType")
-            self.cursor.execute("DROP INDEX IF EXISTS idx_Video_EmbyExtraType")
             self.cursor.execute("DROP INDEX IF EXISTS idx_RemoveItems_EmbyId_NullLibrary")
-            self.cursor.execute("DROP INDEX IF EXISTS idx_UpdateItems_EmbyId_KodiDB_NullParent")
-            self.cursor.execute("DROP INDEX IF EXISTS idx_UpdateItems_KodiDB_EmbyParentId_NullId")
-            self.cursor.execute("DROP INDEX IF EXISTS idx_UpdateItems_EmbyId_NullKodiDB_NullParent")
+            self.cursor.execute("DROP INDEX IF EXISTS idx_UpdateItems_EmbyId_NullKodiDB")
             self.cursor.execute("ANALYZE")
             self.cursor.connection.commit()
             self.cursor.execute("BEGIN IMMEDIATE TRANSACTION")
         except Exception as Error:
-            xbmc.log(f"EMBY.database.emby_db: Database delete index error: {Error}", 3) # LOGERROR
-
-    # Themes
-    def get_ThemeAudio_by_KodiId_EmbyType(self, KodiId, EmbyType):
-        self.cursor.execute("SELECT EmbyId, EmbyMetaData FROM Audio WHERE EmbyParentType IS NOT NULL AND EmbyParentType = ? AND KodiParentId = ?", (EmbyType, KodiId)) # IS NOT NULL is faster as a string compare
-        Data = self.cursor.fetchone()
-
-        if Data:
-            return Data[0], Data[1]
-
-        return "", ""
-
-    def get_ThemeVideo_by_KodiId_EmbyType(self, KodiId, EmbyType):
-        self.cursor.execute("SELECT EmbyId, EmbyMetaData FROM Video WHERE EmbyParentType IS NOT NULL AND EmbyParentType = ? AND KodiParentId = ?", (EmbyType, KodiId))
-        Data = self.cursor.fetchone()
-
-        if Data:
-            return Data[0], Data[1]
-
-        return "", ""
-
-    def get_ThemeAudio(self):
-        self.cursor.execute("SELECT EmbyId, EmbyMetaData FROM Audio WHERE EmbyExtraType IS NOT NULL AND EmbyExtraType = ?", ("ThemeSong",))
-        return self.cursor.fetchall()
-
-    def get_ThemeVideo(self):
-        self.cursor.execute("SELECT EmbyId, EmbyMetaData FROM Video WHERE EmbyExtraType IS NOT NULL AND EmbyExtraType = ?", ("ThemeVideo",))
-        return self.cursor.fetchall()
+            xbmc.log(f"EMBY.database.emby_db: Database delete index error: {Error}", xbmc.LOGERROR)
 
     # LibrarySynced
     def get_LibrarySynced(self):
@@ -514,8 +410,6 @@ class EmbyDatabase:
     def add_UpdateItems(self, Data):
         self.cursor.executemany("INSERT OR REPLACE INTO UpdateItems (EmbyId, EmbyRequestContent, EmbyLibraryId) VALUES (?, ?, ?)", Data)
 
-    def add_UpdateItem_Parent(self, EmbyParentId, EmbyParentType, EmbyLibraryId, KodiParentId, EmbyRequestContent, KodiDB):
-        self.cursor.execute("INSERT OR REPLACE INTO UpdateItems (EmbyParentId, EmbyParentType, EmbyLibraryId, KodiDB, EmbyRequestContent, KodiParentId) VALUES (?, ?, ?, ?, ?, ?)", (EmbyParentId, EmbyParentType, EmbyLibraryId, KodiDB, EmbyRequestContent, KodiParentId))
 
     def get_UpdateItem(self):
         self.cursor.execute("SELECT * FROM UpdateItems")
@@ -525,132 +419,63 @@ class EmbyDatabase:
         if not ItemsCount:
             return {}, 0, {}
 
-        AllocatedList = ItemsCount * [None]
         Data = {}
-        Counter = {}
-        DataProcessed = {}
         KodiDBMapping = {}
 
         for Item in Items:
-            EmbyParentId = Item[4]
             EmbyLibraryId = Item[2] # EmbyLibraryId
 
-            # Allocate Memory
-            # Data['EmbyLibraryId'] = ["MusicVideo": [None, None, ....], ....]
             if EmbyLibraryId not in Data:
-                Data[EmbyLibraryId] = {"MusicVideo": AllocatedList.copy(), "Folder": AllocatedList.copy(), "Movie": AllocatedList.copy(), "Video": AllocatedList.copy(), "Series": AllocatedList.copy(), "Season": AllocatedList.copy(), "Episode": AllocatedList.copy(), "MusicArtist": AllocatedList.copy(), "MusicAlbum": AllocatedList.copy(), "Audio": AllocatedList.copy(), "BoxSet": AllocatedList.copy(), "Person": AllocatedList.copy(), "Genre": AllocatedList.copy(), "MusicGenre": AllocatedList.copy(), "Studio": AllocatedList.copy(), "Tag": AllocatedList.copy(), "Playlist": AllocatedList.copy(), "Trailer": AllocatedList.copy(), "Theme": AllocatedList.copy(), "Special": AllocatedList.copy(), "unknown": AllocatedList.copy()}
-                Counter[EmbyLibraryId] = {"MusicVideo": 0, "Folder": 0, "Movie": 0, "Video": 0, "Series": 0, "Season": 0, "Episode": 0, "MusicArtist": 0, "MusicAlbum": 0, "Audio": 0, "BoxSet": 0, "Person": 0, "MusicGenre": 0, "Genre": 0, "Studio": 0, "Tag": 0, "Playlist": 0, "Trailer": 0, "Theme": 0, "Special": 0, "unknown": 0}
-
-        del AllocatedList
+                # Preserve the returned category order without reserving every queue row per category.
+                Data[EmbyLibraryId] = {MediaType: [] for MediaType in (
+                    "MusicVideo", "Folder", "Movie", "Video", "Series", "Season", "Episode",
+                    "MusicArtist", "MusicAlbum", "Audio", "Person", "MusicGenre", "Genre",
+                    "Studio", "Tag", "BoxSet", "Playlist", "unknown"
+                )}
 
         for Item in Items:
             EmbyId = Item[0]
             EmbyRequestContent = Item[1]
             EmbyLibraryId = Item[2]
             KodiDB = Item[3]
-            EmbyParentId = Item[4]
-            EmbyParentType = Item[5]
-            KodiParentId = Item[6]
 
-            if EmbyId: # DirectItems
-                EmbyId = str(Item[0])
+            EmbyId = str(Item[0])
 
-                if KodiDB:
-                    if KodiDB == "music":
-                        if EmbyId not in KodiDBMapping:
-                            KodiDBMapping[EmbyId] = ("music",)
-                        elif "video" in KodiDBMapping[EmbyId]:
-                            KodiDBMapping[EmbyId] = ("music", "video")
-                    elif KodiDB == "video":
-                        if EmbyId not in KodiDBMapping:
-                            KodiDBMapping[EmbyId] = ("video",)
-                        elif "music" in KodiDBMapping[EmbyId]:
-                            KodiDBMapping[EmbyId] = ("music", "video")
+            if KodiDB:
+                if KodiDB == "music":
+                    if EmbyId not in KodiDBMapping:
+                        KodiDBMapping[EmbyId] = ("music",)
+                    elif "video" in KodiDBMapping[EmbyId]:
+                        KodiDBMapping[EmbyId] = ("music", "video")
+                elif KodiDB == "video":
+                    if EmbyId not in KodiDBMapping:
+                        KodiDBMapping[EmbyId] = ("video",)
+                    elif "music" in KodiDBMapping[EmbyId]:
+                        KodiDBMapping[EmbyId] = ("music", "video")
 
-                if EmbyRequestContent in Data[EmbyLibraryId]:
-                    Data[EmbyLibraryId][EmbyRequestContent][Counter[EmbyLibraryId][EmbyRequestContent]] = EmbyId
-                    Counter[EmbyLibraryId][EmbyRequestContent] += 1
-                else: # e.g. photo updte -> # Item: (3541991, 'Photo', '999999999')
-                    Data[EmbyLibraryId]["unknown"][Counter[EmbyLibraryId]["unknown"]] = EmbyId
-                    Counter[EmbyLibraryId]["unknown"] += 1
-            else: # ParentItems
-                if KodiDB:
-                    if KodiDB == "music":
-                        if EmbyParentId not in KodiDBMapping:
-                            KodiDBMapping[EmbyParentId] = ("music",)
-                        elif "video" in KodiDBMapping[EmbyParentId]:
-                            KodiDBMapping[EmbyParentId] = ("music", "video")
-                    elif KodiDB == "video":
-                        if EmbyParentId not in KodiDBMapping:
-                            KodiDBMapping[EmbyParentId] = ("video",)
-                        elif "music" in KodiDBMapping[EmbyParentId]:
-                            KodiDBMapping[EmbyParentId] = ("music", "video")
+            if EmbyRequestContent in Data[EmbyLibraryId]:
+                Data[EmbyLibraryId][EmbyRequestContent].append(EmbyId)
+            else: # Unknown item type
+                Data[EmbyLibraryId]["unknown"].append(EmbyId)
 
-                if EmbyRequestContent in Data[EmbyLibraryId]:
-                    Data[EmbyLibraryId][EmbyRequestContent][Counter[EmbyLibraryId][EmbyRequestContent]] = {'EmbyParentId': EmbyParentId, 'EmbyParentType': EmbyParentType, 'KodiParentId': KodiParentId}
-                    Counter[EmbyLibraryId][EmbyRequestContent] += 1
-                else: # e.g. photo update -> # Item: (3541991, 'Photo', '999999999')
-                    Data[EmbyLibraryId]["unknown"][Counter[EmbyLibraryId]["unknown"]] = {'EmbyParentId': EmbyParentId, 'EmbyParentType': EmbyParentType, 'KodiParentId': KodiParentId}
-                    Counter[EmbyLibraryId]["unknown"] += 1
-
-        for Key, Array in list(Data.items()): # Key = EmbyLibraryId, Array = {EmbyRequestContent: Counter[EmbyLibraryId][EmbyRequestContent]}
-            DataProcessed[Key] = {"MusicVideo": Array["MusicVideo"][:Counter[Key]["MusicVideo"]], "Folder": Array["Folder"][:Counter[Key]["Folder"]], "Movie": Array["Movie"][:Counter[Key]["Movie"]], "Video": Array["Video"][:Counter[Key]["Video"]], "Series": Array["Series"][:Counter[Key]["Series"]], "Season": Array["Season"][:Counter[Key]["Season"]], "Episode": Array["Episode"][:Counter[Key]["Episode"]], "MusicArtist": Array["MusicArtist"][:Counter[Key]["MusicArtist"]], "MusicAlbum": Array["MusicAlbum"][:Counter[Key]["MusicAlbum"]], "Audio": Array["Audio"][:Counter[Key]["Audio"]], "Person": Array["Person"][:Counter[Key]["Person"]], "MusicGenre": Array["MusicGenre"][:Counter[Key]["MusicGenre"]], "Genre": Array["Genre"][:Counter[Key]["Genre"]], "Studio": Array["Studio"][:Counter[Key]["Studio"]], "Tag": Array["Tag"][:Counter[Key]["Tag"]], "BoxSet": Array["BoxSet"][:Counter[Key]["BoxSet"]], "Playlist": Array["Playlist"][:Counter[Key]["Playlist"]], "Trailer": Array["Trailer"][:Counter[Key]["Trailer"]], "Theme": Array["Theme"][:Counter[Key]["Theme"]], "Special": Array["Special"][:Counter[Key]["Special"]], "unknown": Array["unknown"][:Counter[Key]["unknown"]]} # Filter None
-
-        del Data
-        return DataProcessed, ItemsCount, KodiDBMapping
+        return Data, ItemsCount, KodiDBMapping
 
     def delete_UpdateItem(self, EmbyId):
         self.cursor.execute("DELETE FROM UpdateItems WHERE EmbyId = ?", (EmbyId,))
 
-    def delete_UpdateItem_Parent(self, EmbyParentId, EmbyParentType, EmbyLibraryId, KodiParentId):
-        self.cursor.execute("DELETE FROM UpdateItems WHERE EmbyParentId = ? AND EmbyParentType = ? AND EmbyLibraryId = ? AND KodiParentId = ?", (EmbyParentId, EmbyParentType, EmbyLibraryId, KodiParentId))
-
-    # DownloadItems
-    def add_DownloadItem(self, EmbyId, KodiPathIdBeforeDownload, KodiFileId, KodiId, KodiType, KodiPathId):
-        self.cursor.execute("INSERT OR REPLACE INTO DownloadItems (EmbyId, KodiPathIdBeforeDownload, KodiFileId, KodiId, KodiType) VALUES (?, ?, ?, ?, ?)", (EmbyId, KodiPathIdBeforeDownload, KodiFileId, KodiId, KodiType))
-
-        if KodiType == "episode":
-            self.cursor.execute("UPDATE Episode SET KodiPathId = ? WHERE EmbyId = ?", (KodiPathId, EmbyId))
-        elif KodiType == "movie":
-            self.cursor.execute("UPDATE Movie SET KodiPathId = ? WHERE EmbyId = ?", (KodiPathId, EmbyId))
-            self.cursor.execute("UPDATE Video SET KodiPathId = ? WHERE EmbyId = ?", (KodiPathId, EmbyId))
-        elif KodiType == "musicvideo":
-            self.cursor.execute("UPDATE MusicVideo SET KodiPathId = ? WHERE EmbyId = ?", (KodiPathId, EmbyId))
-
-    def get_DownloadItem_PathId_FileId(self, EmbyId):
-        self.cursor.execute("SELECT KodiPathIdBeforeDownload, KodiFileId, KodiId FROM DownloadItems WHERE EmbyId = ? ", (EmbyId,))
-        Data = self.cursor.fetchone()
-
-        if Data:
-            return Data[0], Data[1], Data[2]
-
-        return None, None, None
-
-    def get_DownloadItem(self):
-        self.cursor.execute("SELECT * FROM DownloadItems")
-        return self.cursor.fetchall()
-
-    def delete_DownloadItem(self, EmbyId):
-        self.cursor.execute("DELETE FROM DownloadItems WHERE EmbyId = ? ", (EmbyId,))
-
-    def get_DownloadItem_exists_by_id(self, EmbyId):
-        self.cursor.execute("SELECT EXISTS(SELECT 1 FROM DownloadItems WHERE EmbyId = ?)", (EmbyId, ))
-        return self.cursor.fetchone()[0]
 
     # RemoveItems
     def add_RemoveItem(self, EmbyId, EmbyLibraryId):
         self.cursor.execute("INSERT OR IGNORE INTO RemoveItems (EmbyId, EmbyLibraryId) VALUES (?, ?)", (EmbyId, EmbyLibraryId))
 
     def add_RemoveItems_EmbyId(self, EmbyIds):
-        SQLData = ()
+        SQLData = []
 
         for EmbyId in EmbyIds:
-            SQLData += ((EmbyId,),)
+            SQLData.append((EmbyId,))
 
         self.cursor.executemany("INSERT OR IGNORE INTO RemoveItems (EmbyId) VALUES (?)", SQLData)
 
-    def add_RemoveItems_EmbyLibraryId_EmbyId(self, Data):
-        self.cursor.executemany("INSERT OR IGNORE INTO RemoveItems (EmbyLibraryId, EmbyId) VALUES (?, ?)", Data)
 
     def get_RemoveItem(self):
         self.cursor.execute("SELECT * FROM RemoveItems")
@@ -664,40 +489,9 @@ class EmbyDatabase:
         self.cursor.execute("DELETE FROM RemoveItems WHERE EmbyId = ? ", (EmbyId,))
 
     # Subtitle
-    def get_Subtitles(self, EmbyId):
-        self.cursor.execute("SELECT * FROM SubtitleStreams WHERE EmbyId = ?", (EmbyId,))
-        return self.cursor.fetchall()
 
     # MediaSources
-    def get_FileSize(self, EmbyId):
-        self.cursor.execute("SELECT Size FROM MediaSources WHERE EmbyId = ?", (EmbyId,))
-        FileSize = self.cursor.fetchone()
 
-        if FileSize:
-            return FileSize[0]
-
-        return 0
-
-    def get_SinglePath(self, EmbyId, EmbyType):
-        self.cursor.execute("SELECT Path FROM MediaSources WHERE EmbyId = ?", (EmbyId,))
-        Paths = self.cursor.fetchall()
-        EmbyIds = ()
-
-        if Paths:
-            PathData = ()
-
-            for Path in Paths:
-                # Emby has poorly designed unique IDs (EmbyId, MediasourceID) definitition, therefore this "by path" query is required
-                self.cursor.execute(f"SELECT EmbyId FROM {EmbyType} WHERE EmbyFolder = ?", (Path[0],))
-                Data = self.cursor.fetchone()
-
-                if Data:
-                    EmbyIds += Data
-                    PathData += (Path[0],)
-
-            return "\n".join(PathData), EmbyIds
-
-        return "", EmbyIds
 
     def get_mediasource(self, EmbyId):
         MediaSources = {}
@@ -707,17 +501,8 @@ class EmbyDatabase:
         for MediaSourceData in MediaSourcesData:
             MediaSources[MediaSourceData[3]] = {"Path": MediaSourceData[0], "Name": MediaSourceData[1], "Size": MediaSourceData[2], "IntroStart": MediaSourceData[4], "IntroEnd": MediaSourceData[5], "CreditsStart": MediaSourceData[6], "MediaSourceId": MediaSourceData[3], "EmbyId": EmbyId}
 
-        return MediaSources
+        return {Source['MediaSourceId']: Source for Source in versions.sort_sources(MediaSources.values())}
 
-    def get_videostreams(self, EmbyId):
-        VideoStreams = {}
-        self.cursor.execute("SELECT MediaSourceId, Width FROM VideoStreams WHERE EmbyId = ?", (EmbyId,))
-        VideoStreamsData = self.cursor.fetchall()
-
-        for VideoStreamData in VideoStreamsData:
-            VideoStreams[VideoStreamData[0]] = {"Width": VideoStreamData[1]}
-
-        return VideoStreams
 
     def get_mediasourceid_by_path(self, Path):
         self.cursor.execute("SELECT MediaSourceId FROM MediaSources WHERE Path = ?", (Path,))
@@ -769,23 +554,20 @@ class EmbyDatabase:
 
     def add_reference_audio(self, EmbyId, EmbyLibraryId, KodiIds, EmbyFolder, KodiPathId, EmbyLibraryIds, EmbyMusicAlbumId, EmbyMusicArtistIds, EmbyMusicGenreIds, EmbyParentId):
         self.cursor.execute("INSERT OR REPLACE INTO Audio (EmbyId, KodiId, EmbyFolder, KodiPathId, LibraryIds, EmbyParentId) VALUES (?, ?, ?, ?, ?, ?)", (EmbyId, ",".join(KodiIds), EmbyFolder, KodiPathId, ",".join(EmbyLibraryIds), EmbyParentId))
-        SQLData = ((EmbyLibraryId, EmbyId, 0, 0, 0),)
+        SQLData = [(EmbyLibraryId, EmbyId, 0, 0, 0)]
 
         if EmbyMusicAlbumId:
-            SQLData += ((EmbyLibraryId, EmbyId, EmbyMusicAlbumId, 0, 0),)
+            SQLData.append((EmbyLibraryId, EmbyId, EmbyMusicAlbumId, 0, 0))
 
         for EmbyMusicArtistId in EmbyMusicArtistIds:
-            SQLData += ((EmbyLibraryId, EmbyId, 0, EmbyMusicArtistId, 0),)
+            SQLData.append((EmbyLibraryId, EmbyId, 0, EmbyMusicArtistId, 0))
 
         for EmbyMusicGenreId in EmbyMusicGenreIds:
-            SQLData += ((EmbyLibraryId, EmbyId, 0, 0, EmbyMusicGenreId),)
+            SQLData.append((EmbyLibraryId, EmbyId, 0, 0, EmbyMusicGenreId))
 
         self.cursor.executemany("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId, EmbyMusicAlbumId, EmbyMusicArtistId, EmbyMusicGenreId) VALUES (?, ?, ?, ?, ?)", SQLData)
         del SQLData
 
-    def add_reference_audio_parent(self, EmbyId, EmbyLibraryId, EmbyFolder, EmbyExtraType, KodiParentId, EmbyParentType, EmbyMetaData, EmbyParentId):
-        self.cursor.execute("INSERT OR REPLACE INTO Audio (EmbyId, EmbyFolder, LibraryIds, EmbyExtraType, KodiParentId, EmbyParentType, EmbyMetaData, EmbyParentId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (EmbyId, EmbyFolder, EmbyLibraryId, EmbyExtraType, KodiParentId, EmbyParentType, EmbyMetaData, EmbyParentId))
-        self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
 
     def add_reference_musicartist(self, EmbyId, EmbyLibraryId, KodiIds, EmbyLibraryIds):
         self.cursor.execute("INSERT OR REPLACE INTO MusicArtist (EmbyId, KodiId, LibraryIds) VALUES (?, ?, ?)", (EmbyId, KodiIds, EmbyLibraryIds))
@@ -797,10 +579,10 @@ class EmbyDatabase:
 
     def add_reference_musicalbum(self, EmbyId, EmbyLibraryId, KodiIds, EmbyLibraryIds, EmbyMusicArtistIds):
         self.cursor.execute("INSERT OR REPLACE INTO MusicAlbum (EmbyId, KodiId, LibraryIds) VALUES (?, ?, ?)", (EmbyId, ",".join(KodiIds), ",".join(EmbyLibraryIds)))
-        SQLData = ((EmbyLibraryId, EmbyId, 0),)
+        SQLData = [(EmbyLibraryId, EmbyId, 0)]
 
         for EmbyMusicArtistId in EmbyMusicArtistIds:
-            SQLData += ((EmbyLibraryId, EmbyId, EmbyMusicArtistId),)
+            SQLData.append((EmbyLibraryId, EmbyId, EmbyMusicArtistId))
 
         self.cursor.executemany("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId, EmbyMusicArtistId) VALUES (?, ?, ?)", SQLData)
         del SQLData
@@ -832,24 +614,21 @@ class EmbyDatabase:
             KodiPathId = ",".join(KodiPathId)
 
         self.cursor.execute("INSERT OR REPLACE INTO MusicVideo (EmbyId, KodiId, KodiFileId, EmbyPresentationKey, EmbyFolder, KodiPathId, LibraryIds) VALUES (?, ?, ?, ?, ?, ?, ?)", (EmbyId, KodiId, KodiFileId, EmbyPresentationKey, EmbyFolder, KodiPathId, LibraryIds))
-        SQLData = ((EmbyLibraryId, EmbyId, 0, 0),)
+        SQLData = [(EmbyLibraryId, EmbyId, 0, 0)]
 
         for EmbyMusicArtistId in EmbyMusicArtistIds:
-            SQLData += ((EmbyLibraryId, EmbyId, EmbyMusicArtistId, 0),)
+            SQLData.append((EmbyLibraryId, EmbyId, EmbyMusicArtistId, 0))
 
         for EmbyMusicGenreId in EmbyMusicGenreIds:
-            SQLData += ((EmbyLibraryId, EmbyId, 0, EmbyMusicGenreId),)
+            SQLData.append((EmbyLibraryId, EmbyId, 0, EmbyMusicGenreId))
 
         self.cursor.executemany("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId, EmbyMusicArtistId, EmbyMusicGenreId) VALUES (?, ?, ?, ?)", SQLData)
         del SQLData
 
-    def add_reference_video(self, EmbyId, EmbyLibraryId, KodiId, KodiFileId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPathId, EmbyExtraType, KodiParentId=""):
-        self.cursor.execute("INSERT OR REPLACE INTO Video (EmbyId, KodiId, KodiFileId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPathId, EmbyExtraType, KodiParentId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (EmbyId, KodiId, KodiFileId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPathId, EmbyExtraType, KodiParentId))
+    def add_reference_video(self, EmbyId, EmbyLibraryId, KodiId, KodiFileId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPathId):
+        self.cursor.execute("INSERT OR REPLACE INTO Video (EmbyId, KodiId, KodiFileId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPathId) VALUES (?, ?, ?, ?, ?, ?, ?)", (EmbyId, KodiId, KodiFileId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPathId))
         self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
 
-    def add_reference_video_parent(self, EmbyId, EmbyLibraryId, EmbyParentId, EmbyPresentationKey, EmbyFolder, EmbyExtraType, KodiParentId, EmbyParentType, EmbyMetaData):
-        self.cursor.execute("INSERT OR REPLACE INTO Video (EmbyId, EmbyParentId, EmbyPresentationKey, EmbyFolder, EmbyExtraType, KodiParentId, EmbyParentType, EmbyMetaData) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (EmbyId, EmbyParentId, EmbyPresentationKey, EmbyFolder, EmbyExtraType, KodiParentId, EmbyParentType, EmbyMetaData))
-        self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
 
     def add_reference_folder(self, EmbyId, EmbyLibraryId, EmbyFolder, EmbyMetaData):
         self.cursor.execute("INSERT OR REPLACE INTO Folder (EmbyId, EmbyFolder, EmbyMetaData) VALUES (?, ?, ?)", (EmbyId, EmbyFolder, EmbyMetaData))
@@ -894,13 +673,13 @@ class EmbyDatabase:
     def update_reference_musicvideo(self, EmbyId, EmbyPresentationKey, EmbyLibraryId, EmbyMusicArtistIds, EmbyMusicGenreIds):
         self.cursor.execute("UPDATE MusicVideo SET EmbyPresentationKey = ? WHERE EmbyId = ?", (EmbyPresentationKey, EmbyId))
         self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
-        SQLData = ((EmbyLibraryId, EmbyId, 0, 0),)
+        SQLData = [(EmbyLibraryId, EmbyId, 0, 0)]
 
         for EmbyMusicArtistId in EmbyMusicArtistIds:
-            SQLData += ((EmbyLibraryId, EmbyId, EmbyMusicArtistId, 0),)
+            SQLData.append((EmbyLibraryId, EmbyId, EmbyMusicArtistId, 0))
 
         for EmbyMusicGenreId in EmbyMusicGenreIds:
-            SQLData += ((EmbyLibraryId, EmbyId, 0, EmbyMusicGenreId),)
+            SQLData.append((EmbyLibraryId, EmbyId, 0, EmbyMusicGenreId))
 
         self.cursor.executemany("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId, EmbyMusicArtistId, EmbyMusicGenreId) VALUES (?, ?, ?, ?)", SQLData)
         del SQLData
@@ -921,13 +700,13 @@ class EmbyDatabase:
         self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
 
     def update_reference_audio(self, EmbyId, EmbyLibraryId, EmbyMusicAlbumId, EmbyMusicArtistIds, EmbyMusicGenreIds):
-        SQLData = ((EmbyLibraryId, EmbyId, 0, 0, 0), (EmbyLibraryId, EmbyId, EmbyMusicAlbumId, 0, 0))
+        SQLData = [(EmbyLibraryId, EmbyId, 0, 0, 0), (EmbyLibraryId, EmbyId, EmbyMusicAlbumId, 0, 0)]
 
         for EmbyMusicArtistId in EmbyMusicArtistIds:
-            SQLData += ((EmbyLibraryId, EmbyId, 0, EmbyMusicArtistId, 0),)
+            SQLData.append((EmbyLibraryId, EmbyId, 0, EmbyMusicArtistId, 0))
 
         for EmbyMusicGenreId in EmbyMusicGenreIds:
-            SQLData += ((EmbyLibraryId, EmbyId, 0, 0, EmbyMusicGenreId),)
+            SQLData.append((EmbyLibraryId, EmbyId, 0, 0, EmbyMusicGenreId))
 
         self.cursor.execute("DELETE FROM EmbyLibraryMapping WHERE EmbyId = ? AND EmbyLibraryId = ?", (EmbyId, EmbyLibraryId))
         self.cursor.executemany("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId, EmbyMusicAlbumId, EmbyMusicArtistId, EmbyMusicGenreId) VALUES (?, ?, ?, ?, ?)", SQLData)
@@ -937,10 +716,10 @@ class EmbyDatabase:
         self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
 
     def update_reference_musicalbum(self, EmbyId, EmbyLibraryId, EmbyMusicArtistIds):
-        SQLData = ((EmbyLibraryId, EmbyId, 0),)
+        SQLData = [(EmbyLibraryId, EmbyId, 0)]
 
         for EmbyMusicArtistId in EmbyMusicArtistIds:
-            SQLData += ((EmbyLibraryId, EmbyId, EmbyMusicArtistId),)
+            SQLData.append((EmbyLibraryId, EmbyId, EmbyMusicArtistId))
 
         self.cursor.executemany("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId, EmbyMusicArtistId) VALUES (?, ?, ?)", SQLData)
         del SQLData
@@ -961,7 +740,7 @@ class EmbyDatabase:
             EmbyTypesMod = EmbyTypes
 
         for EmbyTypeMod in EmbyTypesMod:
-            if EmbyTypeMod in ("Season", "BoxSet", "Audio"):
+            if EmbyTypeMod in ("Season", "BoxSet"):
                 self.cursor.execute(f"SELECT KodiId, KodiParentId FROM {EmbyTypeMod} WHERE EmbyId = ?", (EmbyId,))
                 Data = self.cursor.fetchone()
 
@@ -982,7 +761,7 @@ class EmbyDatabase:
                 if Data:
                     return {"KodiItemId": Data[0], "KodiFileId": Data[1], "Type": EmbyTypeMod, "KodiParentId": "", "Name": ""}
 
-            if EmbyTypeMod in ("Folder", "PhotoAlbum", "Photo", "Trailer"): # Content only synced to local emby database
+            if EmbyTypeMod == "Folder": # Content only synced to local emby database
                 self.cursor.execute(f"SELECT * FROM {EmbyTypeMod} WHERE EmbyId = ?", (EmbyId,)) # Check if exists
                 Data = self.cursor.fetchone()
 
@@ -1010,20 +789,19 @@ class EmbyDatabase:
                 if Data:
                     return {"KodiItemId": Data[0], "KodiFileId": "", "Type": EmbyTypeMod, "KodiParentId": "", "Name": "", "LibraryIds": Data[1]}
 
-            if EmbyTypeMod in ("Series", "Genre", "MusicGenre", "Tag", "Studio", "Person"):
+            if EmbyTypeMod in ("Series", "Genre", "MusicGenre", "Tag", "Studio", "Person", "Audio"):
                 self.cursor.execute(f"SELECT KodiId FROM {EmbyTypeMod} WHERE EmbyId = ?", (EmbyId,))
                 Data = self.cursor.fetchone()
 
                 if Data:
                     return {"KodiItemId": Data[0], "KodiFileId": "", "Type": EmbyTypeMod, "KodiParentId": "", "Name": ""}
 
-        if utils.DebugLog: xbmc.log(f"EMBY.database.emby_db: EmbyId not found (get_UserData_MetaData): {EmbyId} / {EmbyType} / {EmbyTypesMod}", 1) # LOGDEBUG
         return {"KodiItemId": "", "KodiFileId": "", "Type": "", "KodiParentId": "", "Name": ""}
 
     def get_remove_generator_items(self, EmbyId, EmbyLibraryId):
-        RemoveItems = ()
+        RemoveItems = []
         ItemFound = False
-        EmbyIds = ()
+        EmbyIds = []
 
         for Table in ("Movie", "Episode"):
             self.cursor.execute(f"SELECT KodiId, KodiFileId, EmbyPresentationKey, KodiPathId FROM {Table} WHERE EmbyId = ?", (EmbyId,))
@@ -1031,8 +809,8 @@ class EmbyDatabase:
 
             if Data:
                 if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": Data[1], "Type": Table, "PresentationUniqueKey": Data[2], "KodiParentId": None, "KodiPathId": Data[3], "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                    EmbyIds += (EmbyId,)
+                    RemoveItems.append({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": Data[1], "Type": Table, "PresentationUniqueKey": Data[2], "KodiParentId": None, "KodiPathId": Data[3], "EmbyLinkedId": "", "LibraryIds": "", "Name": ""})
+                    EmbyIds.append(EmbyId)
 
                 ItemFound = True
                 break
@@ -1043,19 +821,19 @@ class EmbyDatabase:
 
             if Data:
                 if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": Data[1], "Type": "MusicVideo", "PresentationUniqueKey": Data[2], "KodiParentId": None, "KodiPathId": Data[3], "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": Data[4], "Name": ""},)
-                    EmbyIds += (EmbyId,)
+                    RemoveItems.append({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": Data[1], "Type": "MusicVideo", "PresentationUniqueKey": Data[2], "KodiParentId": None, "KodiPathId": Data[3], "EmbyLinkedId": "", "LibraryIds": Data[4], "Name": ""})
+                    EmbyIds.append(EmbyId)
 
                 ItemFound = True
 
         if not ItemFound:
-            self.cursor.execute("SELECT KodiId, KodiFileId, EmbyPresentationKey, KodiPathId, EmbyExtraType FROM Video WHERE EmbyId = ?", (EmbyId,))
+            self.cursor.execute("SELECT KodiId, KodiFileId, EmbyPresentationKey, KodiPathId FROM Video WHERE EmbyId = ?", (EmbyId,))
             Data = self.cursor.fetchone()
 
             if Data:
                 if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": Data[1], "Type": "Video", "PresentationUniqueKey": Data[2], "KodiParentId": None, "KodiPathId": Data[3], "ExtraType": Data[4], "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                    EmbyIds += (EmbyId,)
+                    RemoveItems.append({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": Data[1], "Type": "Video", "PresentationUniqueKey": Data[2], "KodiParentId": None, "KodiPathId": Data[3], "EmbyLinkedId": "", "LibraryIds": "", "Name": ""})
+                    EmbyIds.append(EmbyId)
 
                 ItemFound = True
 
@@ -1065,8 +843,8 @@ class EmbyDatabase:
 
             if Data:
                 if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": "Series", "PresentationUniqueKey": Data[1], "KodiParentId": None, "KodiPathId": Data[2], "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                    EmbyIds += (EmbyId,)
+                    RemoveItems.append({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": "Series", "PresentationUniqueKey": Data[1], "KodiParentId": None, "KodiPathId": Data[2], "EmbyLinkedId": "", "LibraryIds": "", "Name": ""})
+                    EmbyIds.append(EmbyId)
 
                 ItemFound = True
 
@@ -1076,8 +854,8 @@ class EmbyDatabase:
 
             if Data:
                 if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": "Season", "PresentationUniqueKey": Data[1], "KodiParentId": Data[2], "KodiPathId": None, "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                    EmbyIds += (EmbyId,)
+                    RemoveItems.append({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": "Season", "PresentationUniqueKey": Data[1], "KodiParentId": Data[2], "KodiPathId": None, "EmbyLinkedId": "", "LibraryIds": "", "Name": ""})
+                    EmbyIds.append(EmbyId)
 
                 ItemFound = True
 
@@ -1087,8 +865,8 @@ class EmbyDatabase:
 
             if Data:
                 if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": "Playlist", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": None, "ExtraType": "", "EmbyLinkedId": Data[1], "LibraryIds": "", "Name": Data[2]},)
-                    EmbyIds += (EmbyId,)
+                    RemoveItems.append({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": "Playlist", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": None, "EmbyLinkedId": Data[1], "LibraryIds": "", "Name": Data[2]})
+                    EmbyIds.append(EmbyId)
 
                 ItemFound = True
 
@@ -1099,8 +877,8 @@ class EmbyDatabase:
 
                 if Data:
                     if EmbyId not in EmbyIds:
-                        RemoveItems += ({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": Table, "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": None, "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                        EmbyIds += (EmbyId,)
+                        RemoveItems.append({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": Table, "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": None, "EmbyLinkedId": "", "LibraryIds": "", "Name": ""})
+                        EmbyIds.append(EmbyId)
 
                     ItemFound = True
                     break
@@ -1112,8 +890,8 @@ class EmbyDatabase:
 
                 if Data:
                     if EmbyId not in EmbyIds:
-                        RemoveItems += ({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": Table, "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": None, "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": Data[1], "Name": ""},)
-                        EmbyIds += (EmbyId,)
+                        RemoveItems.append({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": Table, "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": None, "EmbyLinkedId": "", "LibraryIds": Data[1], "Name": ""})
+                        EmbyIds.append(EmbyId)
 
                     ItemFound = True
                     break
@@ -1124,8 +902,8 @@ class EmbyDatabase:
 
             if Data:
                 if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": "MusicAlbum", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": None, "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": Data[1], "Name": ""},)
-                    EmbyIds += (EmbyId,)
+                    RemoveItems.append({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": "MusicAlbum", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": None, "EmbyLinkedId": "", "LibraryIds": Data[1], "Name": ""})
+                    EmbyIds.append(EmbyId)
 
                     # MyMusic.db trigger removes all referenced songs, so add them here
                     if not EmbyLibraryId: # only if not a complete library was removed
@@ -1133,59 +911,27 @@ class EmbyDatabase:
                         Datas = self.cursor.fetchall()
 
                         for Data in Datas:
-                            self.cursor.execute("SELECT KodiId, KodiPathId, LibraryIds, EmbyExtraType FROM Audio WHERE EmbyId = ?", (Data[0],))
+                            self.cursor.execute("SELECT KodiId, KodiPathId, LibraryIds FROM Audio WHERE EmbyId = ?", (Data[0],))
                             DataSub = self.cursor.fetchone()
 
                             if DataSub:
                                 if Data[0] not in EmbyIds:
-                                    RemoveItems += ({"Id": Data[0], "KodiItemId": DataSub[0], "KodiFileId": None, "Type": "Audio", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": DataSub[1], "ExtraType": DataSub[3], "EmbyLinkedId": "", "LibraryIds": DataSub[2], "Name": ""},)
-                                    EmbyIds += (Data[0],)
+                                    RemoveItems.append({"Id": Data[0], "KodiItemId": DataSub[0], "KodiFileId": None, "Type": "Audio", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": DataSub[1], "EmbyLinkedId": "", "LibraryIds": DataSub[2], "Name": ""})
+                                    EmbyIds.append(Data[0])
 
                 ItemFound = True
 
         if not ItemFound:
-            self.cursor.execute("SELECT KodiId, KodiPathId, LibraryIds, EmbyExtraType FROM Audio WHERE EmbyId = ?", (EmbyId,))
+            self.cursor.execute("SELECT KodiId, KodiPathId, LibraryIds FROM Audio WHERE EmbyId = ?", (EmbyId,))
             Data = self.cursor.fetchone()
 
             if Data:
                 if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": "Audio", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": Data[1], "ExtraType": Data[3], "EmbyLinkedId": "", "LibraryIds": Data[2], "Name": ""},)
-                    EmbyIds += (EmbyId,)
+                    RemoveItems.append({"Id": EmbyId, "KodiItemId": Data[0], "KodiFileId": None, "Type": "Audio", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": Data[1], "EmbyLinkedId": "", "LibraryIds": Data[2], "Name": ""})
+                    EmbyIds.append(EmbyId)
 
                 ItemFound = True
 
-        if not ItemFound:
-            self.cursor.execute("SELECT EmbyPresentationKey, EmbyExtraType FROM Trailer WHERE EmbyId = ?", (EmbyId,))
-            Data = self.cursor.fetchone()
-
-            if Data:
-                if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": "", "KodiFileId": "", "Type": "Trailer", "PresentationUniqueKey": Data[0], "KodiParentId": None, "KodiPathId": "", "ExtraType": Data[1], "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                    EmbyIds += (EmbyId,)
-
-                ItemFound = True
-
-        if not ItemFound:
-            self.cursor.execute("SELECT EmbyPresentationKey FROM PhotoAlbum WHERE EmbyId = ?", (EmbyId,))
-            Data = self.cursor.fetchone()
-
-            if Data:
-                if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": "", "KodiFileId": "", "Type": "PhotoAlbum", "PresentationUniqueKey": Data[0], "KodiParentId": None, "KodiPathId": "", "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                    EmbyIds += (EmbyId,)
-
-                ItemFound = True
-
-        if not ItemFound:
-            self.cursor.execute("SELECT EmbyPresentationKey FROM Photo WHERE EmbyId = ?", (EmbyId,))
-            Data = self.cursor.fetchone()
-
-            if Data:
-                if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": "", "KodiFileId": "", "Type": "Photo", "PresentationUniqueKey": Data[0], "KodiParentId": None, "KodiPathId": "", "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                    EmbyIds += (EmbyId,)
-
-                ItemFound = True
 
         if not ItemFound: # Folder
             self.cursor.execute("SELECT EmbyFolder FROM Folder WHERE EmbyId = ?", (EmbyId,))
@@ -1195,8 +941,8 @@ class EmbyDatabase:
                 Search = EmbyFolder[0].replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%") # underline and percent are wildcards in sqlite
 
                 if EmbyId not in EmbyIds:
-                    RemoveItems += ({"Id": EmbyId, "KodiItemId": "", "KodiFileId": None, "Type": "Folder", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": None, "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                    EmbyIds += (EmbyId,)
+                    RemoveItems.append({"Id": EmbyId, "KodiItemId": "", "KodiFileId": None, "Type": "Folder", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": None, "EmbyLinkedId": "", "LibraryIds": "", "Name": ""})
+                    EmbyIds.append(EmbyId)
 
                 # Delete items by same folder
                 if not EmbyLibraryId: # only if not a complete library was removed
@@ -1206,51 +952,26 @@ class EmbyDatabase:
 
                         for Data in Datas:
                             if Data[0] not in EmbyIds:
-                                RemoveItems += ({"Id": Data[0], "KodiItemId": Data[1], "KodiFileId": Data[2], "Type": Table, "PresentationUniqueKey": Data[3], "KodiParentId": None, "KodiPathId": Data[4], "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                                EmbyIds += (Data[0],)
+                                RemoveItems.append({"Id": Data[0], "KodiItemId": Data[1], "KodiFileId": Data[2], "Type": Table, "PresentationUniqueKey": Data[3], "KodiParentId": None, "KodiPathId": Data[4], "EmbyLinkedId": "", "LibraryIds": "", "Name": ""})
+                                EmbyIds.append(Data[0])
 
-                    self.cursor.execute("SELECT EmbyId, KodiId, KodiFileId, EmbyPresentationKey, KodiPathId, EmbyExtraType FROM Video WHERE EmbyFolder LIKE ? ESCAPE '\\'", (f"{Search}%",))
+                    self.cursor.execute("SELECT EmbyId, KodiId, KodiFileId, EmbyPresentationKey, KodiPathId FROM Video WHERE EmbyFolder LIKE ? ESCAPE '\\'", (f"{Search}%",))
                     Datas = self.cursor.fetchall()
 
                     for Data in Datas:
                         if Data[0] not in EmbyIds:
-                            RemoveItems += ({"Id": Data[0], "KodiItemId": Data[1], "KodiFileId": Data[2], "Type": "Video", "PresentationUniqueKey": Data[3], "KodiParentId": None, "KodiPathId": Data[4], "ExtraType": Data[5], "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                            EmbyIds += (Data[0],)
+                            RemoveItems.append({"Id": Data[0], "KodiItemId": Data[1], "KodiFileId": Data[2], "Type": "Video", "PresentationUniqueKey": Data[3], "KodiParentId": None, "KodiPathId": Data[4], "EmbyLinkedId": "", "LibraryIds": "", "Name": ""})
+                            EmbyIds.append(Data[0])
 
-                    self.cursor.execute("SELECT EmbyId, KodiId, KodiPathId, LibraryIds, EmbyExtraType FROM Audio WHERE EmbyFolder LIKE ? ESCAPE '\\'", (f"{Search}%",))
+                    self.cursor.execute("SELECT EmbyId, KodiId, KodiPathId, LibraryIds FROM Audio WHERE EmbyFolder LIKE ? ESCAPE '\\'", (f"{Search}%",))
                     Datas = self.cursor.fetchall()
 
                     for Data in Datas:
                         if Data[0] not in EmbyIds:
-                            RemoveItems += ({"Id": Data[0], "KodiItemId": Data[1], "KodiFileId": None, "Type": "Audio", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": Data[2], "ExtraType": Data[4], "EmbyLinkedId": "", "LibraryIds": Data[3], "Name": ""},)
-                            EmbyIds += (Data[0],)
+                            RemoveItems.append({"Id": Data[0], "KodiItemId": Data[1], "KodiFileId": None, "Type": "Audio", "PresentationUniqueKey": None, "KodiParentId": None, "KodiPathId": Data[2], "EmbyLinkedId": "", "LibraryIds": Data[3], "Name": ""})
+                            EmbyIds.append(Data[0])
 
-                    self.cursor.execute("SELECT EmbyId, EmbyPresentationKey, EmbyExtraType FROM Trailer WHERE EmbyFolder LIKE ? ESCAPE '\\'", (f"{Search}%",))
-                    Datas = self.cursor.fetchall()
-
-                    for Data in Datas:
-                        if Data[0] not in EmbyIds:
-                            RemoveItems += ({"Id": Data[0], "KodiItemId": "", "KodiFileId": None, "Type": "Trailer", "PresentationUniqueKey": Data[1], "KodiParentId": None, "KodiPathId": "", "ExtraType": Data[2], "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                            EmbyIds += (Data[0],)
-
-                    self.cursor.execute("SELECT EmbyId, EmbyPresentationKey FROM PhotoAlbum WHERE EmbyFolder LIKE ? ESCAPE '\\'", (f"{Search}%",))
-                    Datas = self.cursor.fetchall()
-
-                    for Data in Datas:
-                        if Data[0] not in EmbyIds:
-                            RemoveItems += ({"Id": Data[0], "KodiItemId": "", "KodiFileId": None, "Type": "PhotoAlbum", "PresentationUniqueKey": Data[1], "KodiParentId": None, "KodiPathId": "", "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                            EmbyIds += (Data[0],)
-
-                    self.cursor.execute("SELECT EmbyId, EmbyPresentationKey FROM Photo WHERE EmbyFolder LIKE ? ESCAPE '\\'", (f"{Search}%",))
-                    Datas = self.cursor.fetchall()
-
-                    for Data in Datas:
-                        if Data[0] not in EmbyIds:
-                            RemoveItems += ({"Id": Data[0], "KodiItemId": "", "KodiFileId": None, "Type": "Photo", "PresentationUniqueKey": Data[1], "KodiParentId": None, "KodiPathId": "", "ExtraType": "", "EmbyLinkedId": "", "LibraryIds": "", "Name": ""},)
-                            EmbyIds += (Data[0],)
-
-        del EmbyIds
-        return RemoveItems
+        return tuple(RemoveItems)
 
     def add_remove_library_items(self, EmbyLibraryId):
         self.cursor.execute("SELECT EmbyId, EmbyLibraryId FROM EmbyLibraryMapping WHERE EmbyLibraryId = ? AND EmbyId NOT LIKE ?", (EmbyLibraryId, "9999999%"))
@@ -1259,7 +980,7 @@ class EmbyDatabase:
         if SQLData:
             self.cursor.executemany("INSERT OR REPLACE INTO RemoveItems (EmbyId, EmbyLibraryId) VALUES (?, ?)", SQLData)
 
-        SQLData = ()
+        SQLData = []
 
          # Remove library subitems
         self.cursor.execute("SELECT EXISTS(SELECT 1 FROM EmbyLibraryMapping WHERE EmbyId = ? AND EmbyLibraryId = ?)", (f"{utils.MappingIds['Tag']}00{EmbyLibraryId}", EmbyLibraryId))
@@ -1290,7 +1011,7 @@ class EmbyDatabase:
             self.cursor.execute("SELECT EXISTS(SELECT 1 FROM EmbyLibraryMapping WHERE EmbyId = ? AND EmbyLibraryId = ?)", (MappingId, EmbyLibraryId))
 
             if self.cursor.fetchone()[0]:
-                SQLData += ((MappingId, EmbyLibraryId),)
+                SQLData.append((MappingId, EmbyLibraryId))
 
         if SQLData:
             self.cursor.executemany("INSERT OR REPLACE INTO RemoveItems (EmbyId, EmbyLibraryId) VALUES (?, ?)", SQLData)
@@ -1315,8 +1036,6 @@ class EmbyDatabase:
         self.cursor.execute("SELECT KodiId FROM Season WHERE EmbyFavourite = ?", ("1",))
         return self.cursor.fetchall()
 
-    def update_parent_id(self, KodiParentId, EmbyId, EmbyType):
-        self.cursor.execute(f"UPDATE {EmbyType} SET KodiParentId = ? WHERE EmbyId = ?", (KodiParentId, EmbyId))
 
     def get_KodiParentIds(self, EmbyId, EmbyType):
         self.cursor.execute(f"SELECT KodiParentId FROM {EmbyType} WHERE EmbyId = ?", (EmbyId,))
@@ -1327,22 +1046,11 @@ class EmbyDatabase:
 
         return []
 
-    def get_ItemJson(self, EmbyId, EmbyType):
-        self.cursor.execute(f"SELECT EmbyMetaData FROM {EmbyType} WHERE EmbyId = ?", (EmbyId,))
-        Data = self.cursor.fetchone()
-
-        if Data:
-            return Data[0]
-
-        return {}
 
     def get_KodiSpecialTagIds(self):
         self.cursor.execute("SELECT KodiId FROM Tag WHERE Memo = ? OR Memo = ?", ("library", "playlist"))
         return self.cursor.fetchall()
 
-    def get_special_features(self, EmbyParentId):
-        self.cursor.execute("SELECT EmbyId FROM Video WHERE EmbyParentId = ?", (EmbyParentId,))
-        return self.cursor.fetchall()
 
     def get_EmbyId_KodiId_ImageUrl_by_KodiId_EmbyType(self, KodiId, EmbyType, ContentType):
         if EmbyType == "MusicArtist" and ContentType == "video":
@@ -1363,29 +1071,9 @@ class EmbyDatabase:
 
             return Data[0], Data[1], "", Data[2]
 
-        if EmbyType == "MusicGenre" and ContentType == "music":
-            self.cursor.execute("SELECT EmbyId, KodiId, EmbyArtwork, LibraryIds FROM MusicGenre WHERE KodiId LIKE ?", (f"{KodiId};%",))
-            Data = self.cursor.fetchone()
-
-            if not Data:
-                return "", "", "", ""
-
-            return Data[0], Data[1], Data[2], Data[3]
-
-        if EmbyType == "MusicGenre" and ContentType == "video":
-            self.cursor.execute("SELECT EmbyId, KodiId, EmbyArtwork, LibraryIds FROM MusicGenre WHERE KodiId LIKE ?", (f"%;{KodiId}",))
-            Data = self.cursor.fetchone()
-
-            if not Data:
-                return "", "", "", ""
-
-            return Data[0], Data[1], Data[2], Data[3]
-
         if EmbyType == "MusicAlbum":
             self.cursor.execute("SELECT EmbyId, KodiId FROM MusicAlbum WHERE KodiId = ? OR KodiId LIKE ? OR KodiId LIKE ? OR KodiId LIKE ?", (KodiId, f"%,{KodiId}", f"{KodiId},%", f"%,{KodiId},%"))
 
-        elif EmbyType in ("Tag", "Genre", "Studio"):
-            self.cursor.execute(f"SELECT EmbyId, KodiId, EmbyArtwork FROM {EmbyType} WHERE KodiId = ?", (KodiId,))
         elif EmbyType == "Playlist" and ContentType == "music":
             self.cursor.execute("SELECT EmbyId, KodiId, EmbyArtwork FROM Playlist WHERE KodiId LIKE ?", (f"{KodiId};%",))
         elif EmbyType == "Playlist" and ContentType == "video":
@@ -1428,7 +1116,7 @@ class EmbyDatabase:
 
     def get_EmbyId_by_KodiId_KodiType(self, KodiId, KodiType):
         if KodiType not in utils.KodiTypeMapping:
-            xbmc.log(f"EMBY.database.emby_db: KodiType invalid (get_EmbyId_by_KodiId_KodiType): {KodiType}", 3) # LOGERROR
+            xbmc.log(f"EMBY.database.emby_db: KodiType invalid (get_EmbyId_by_KodiId_KodiType): {KodiType}", xbmc.LOGERROR)
             return None
 
         self.cursor.execute(f"SELECT EmbyId FROM {utils.KodiTypeMapping[KodiType]} WHERE KodiId = ?", (KodiId,))
@@ -1462,26 +1150,10 @@ class EmbyDatabase:
         self.cursor.execute("SELECT EmbyLibraryId FROM EmbyLibraryMapping WHERE EmbyId = ?", (EmbyId,))
         return self.cursor.fetchall()
 
-    def get_EmbyIds_LibraryIds_by_KodiIds_EmbyType(self, KodiId, EmbyType):
-        self.cursor.execute(f"SELECT EmbyId FROM {EmbyType} WHERE KodiId = ?", (KodiId,))
-        EmbyId = self.cursor.fetchone()
-        EmbyLibraryIds = ()
-
-        if EmbyId:
-            EmbyId = EmbyId[0]
-            self.cursor.execute("SELECT EmbyLibraryId FROM EmbyLibraryMapping WHERE EmbyId = ?", (EmbyId,))
-            Datas = self.cursor.fetchall()
-
-            for Data in Datas:
-                EmbyLibraryIds += (Data[0],)
-        else:
-            EmbyId = ""
-
-        return EmbyLibraryIds, EmbyId
 
     def get_EmbyId_EmbyFavourite_by_KodiId_KodiType(self, KodiId, KodiType):
         if KodiType not in utils.KodiTypeMapping:
-            xbmc.log(f"EMBY.database.emby_db: KodiType invalid (get_EmbyId_EmbyFavourite_by_KodiId_KodiType): {KodiType}", 3) # LOGERROR
+            xbmc.log(f"EMBY.database.emby_db: KodiType invalid (get_EmbyId_EmbyFavourite_by_KodiId_KodiType): {KodiType}", xbmc.LOGERROR)
             return None, None
 
         EmbyType = utils.KodiTypeMapping[KodiType]
@@ -1507,7 +1179,7 @@ class EmbyDatabase:
 
         return None, None
 
-    def get_nativemode_data_by_KodiId_KodiType(self, KodiId, KodiType):
+    def get_playback_data_by_KodiId_KodiType(self, KodiId, KodiType):
         if KodiType == "videoversion":
             self.cursor.execute("SELECT EmbyId FROM Movie WHERE KodiFileId = ?", (KodiId,))
             Data = self.cursor.fetchone()
@@ -1519,7 +1191,7 @@ class EmbyDatabase:
                 EmbyType = "Video"
         else:
             if KodiType not in utils.KodiTypeMapping:
-                xbmc.log(f"EMBY.database.emby_db: KodiType invalid (get_nativemode_data): {KodiType}", 3) # LOGERROR
+                xbmc.log(f"EMBY.database.emby_db: KodiType invalid (get_playback_data): {KodiType}", xbmc.LOGERROR)
                 return None, None, None, None, None
 
             EmbyType = utils.KodiTypeMapping[KodiType]
@@ -1568,112 +1240,23 @@ class EmbyDatabase:
 
         return []
 
-    def get_EpisodePathsBySeries(self, EmbyId):
-        self.cursor.execute("SELECT EmbyPresentationKey FROM Series WHERE EmbyId = ?", (EmbyId,))
-        EmbyPresentationKey = self.cursor.fetchone()
-        EmbyIdsData = ()
-
-        if EmbyPresentationKey and EmbyPresentationKey[0]:
-            Search = EmbyPresentationKey[0].replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%") # underline and percent are wildcards in sqlite
-            self.cursor.execute("SELECT EmbyId FROM Episode WHERE EmbyPresentationKey LIKE ? ESCAPE '\\'", (f"{Search}%",))
-            LocalEmbyIds = self.cursor.fetchall()
-            PathData = ()
-
-            for LocalEmbyId in LocalEmbyIds:
-                EpisodePath, EpisodeEmbyIds = self.get_SinglePath(LocalEmbyId[0], "Episode")
-                PathData += (EpisodePath,)
-                EmbyIdsData += EpisodeEmbyIds
-
-            return "\n".join(PathData), EmbyIdsData
-
-        return "", ()
-
-    def get_EpisodePathsBySeason(self, EmbyId):
-        self.cursor.execute("SELECT EmbyPresentationKey FROM Season WHERE EmbyId = ?", (EmbyId,))
-        EmbyPresentationKey = self.cursor.fetchone()
-        EmbyIdsData = ()
-
-        if EmbyPresentationKey and EmbyPresentationKey[0]:
-            Search = EmbyPresentationKey[0].replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%") # underline and percent are wildcards in sqlite
-            self.cursor.execute("SELECT EmbyId FROM Episode WHERE EmbyPresentationKey LIKE ? ESCAPE '\\'", (f"{Search}%",))
-            LocalEmbyIds = self.cursor.fetchall()
-            PathData = ()
-
-            for LocalEmbyId in LocalEmbyIds:
-                EpisodePath, EpisodeEmbyIds = self.get_SinglePath(LocalEmbyId[0], "Episode")
-                PathData += (EpisodePath,)
-                EmbyIdsData += EpisodeEmbyIds
-
-            return "\n".join(PathData), EmbyIdsData
-
-        return "", ()
-
-    # trailer
-    def add_reference_trailer(self, EmbyId, EmbyLibraryId, EmbyParentId, EmbyPresentationKey, EmbyFolder, EmbyExtraType, KodiParentId, EmbyParentType, KodiPath, EmbyMetaData):
-        self.cursor.execute("INSERT OR REPLACE INTO Trailer (EmbyId, EmbyParentId, EmbyPresentationKey, EmbyFolder, EmbyExtraType, KodiParentId, EmbyParentType, KodiPath, EmbyMetaData) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (EmbyId, EmbyParentId, EmbyPresentationKey, EmbyFolder, EmbyExtraType, KodiParentId, EmbyParentType, KodiPath, EmbyMetaData))
-        self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
-
-    def get_Trailers_local_random(self, Max):
-        self.cursor.execute(f"WITH RandomTrailers AS (SELECT EmbyId FROM Trailer WHERE EmbyExtraType = ? ORDER BY RANDOM() LIMIT {Max}) SELECT EmbyMetaData FROM Trailer WHERE EmbyId IN (SELECT EmbyId FROM RandomTrailers)", ("Trailer",))
-        return self.cursor.fetchall()
-
-    def get_Trailers_remote_option_random(self, EmbyParentId, Max):
-        self.cursor.execute(f"WITH RandomTrailers AS (SELECT EmbyId FROM Trailer WHERE EmbyParentId = ? ORDER BY RANDOM() LIMIT {Max}) SELECT EmbyMetaData FROM Trailer WHERE EmbyId IN (SELECT EmbyId FROM RandomTrailers)", (EmbyParentId,))
-        return self.cursor.fetchall()
-
-    def get_Trailers_remote_movie_random(self, Max):
-        self.cursor.execute(f"WITH RandomTrailers AS (SELECT EmbyId FROM Trailer WHERE EmbyExtraType IS NULL AND EmbyId LIKE ? ORDER BY RANDOM() LIMIT {Max}) SELECT EmbyMetaData FROM Trailer WHERE EmbyId IN (SELECT EmbyId FROM RandomTrailers)", ("99999998%",))
-        return self.cursor.fetchall()
-
-    def get_Trailers_folder_random(self, Max):
-        self.cursor.execute(f"WITH RandomTrailers AS (SELECT EmbyId FROM Video WHERE EmbyParentId IS NULL ORDER BY RANDOM() LIMIT {Max}) SELECT EmbyMetaData FROM Video WHERE EmbyId IN (SELECT EmbyId FROM RandomTrailers)")
-        return self.cursor.fetchall()
-
-    def get_Trailers_folder(self):
-        self.cursor.execute("SELECT EmbyParentId FROM Trailer WHERE EmbyExtraType IS NULL AND EmbyId NOT LIKE ? GROUP BY EmbyParentId", ("99999998%",))
-        EmbyParentIds = self.cursor.fetchall()
-        EmbyParentIdList = ()
-
-        for EmbyParentId in EmbyParentIds:
-            EmbyParentIdList += EmbyParentId
-
-        if EmbyParentIdList:
-            if len(EmbyParentIdList) == 1:
-                EmbyParentIdList = f"({EmbyParentIdList[0]})"
-
-            self.cursor.execute(f"SELECT EmbyMetaData FROM Folder WHERE EmbyId IN {EmbyParentIdList}")
-            return self.cursor.fetchall()
-
-        return ()
-
-    # photoalbum
-    def add_reference_photoalbum(self, EmbyId, EmbyLibraryId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPath, EmbyMetaData):
-        self.cursor.execute("INSERT OR REPLACE INTO PhotoAlbum (EmbyId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPath, EmbyMetaData) VALUES (?, ?, ?, ?, ?, ?)", (EmbyId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPath, EmbyMetaData))
-        self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
-
-    # photo
-    def add_reference_photo(self, EmbyId, EmbyLibraryId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPath, EmbyMetaData):
-        self.cursor.execute("INSERT OR REPLACE INTO Photo (EmbyId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPath, EmbyMetaData) VALUES (?, ?, ?, ?, ?, ?)", (EmbyId, EmbyParentId, EmbyPresentationKey, EmbyFolder, KodiPath, EmbyMetaData))
-        self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
 
     # favorite infos
     def get_FavoriteInfos(self, Table):
-        if Table in ("MusicArtist", "MusicAlbum"):
+        if Table in ("MusicArtist", "MusicAlbum", "Audio"):
             self.cursor.execute(f"SELECT EmbyFavourite, KodiId, EmbyId, LibraryIds FROM {Table}")
-        elif Table in ("Person", "Series", "BoxSet"):
+        elif Table in ("Series", "BoxSet"):
             self.cursor.execute(f"SELECT EmbyFavourite, KodiId, EmbyId FROM {Table}")
-        elif Table == "Audio":
-            self.cursor.execute(f"SELECT EmbyFavourite, KodiId, EmbyId, LibraryIds FROM {Table}")
         elif Table == "Season":
             self.cursor.execute("SELECT EmbyFavourite, KodiId, KodiParentId, EmbyId FROM Season")
         elif Table in ("Movie", "Episode", "Video"):
             self.cursor.execute(f"SELECT EmbyFavourite, KodiFileId, KodiId, EmbyId FROM {Table}")
         elif Table == "MusicVideo":
             self.cursor.execute(f"SELECT EmbyFavourite, KodiFileId, KodiId, EmbyId, LibraryIds FROM {Table}")
-        elif Table == "MusicGenre":
-            self.cursor.execute(f"SELECT EmbyFavourite, KodiId, EmbyArtwork, EmbyId, LibraryIds FROM {Table}")
+        elif Table == "Playlist":
+            self.cursor.execute("SELECT EmbyFavourite, KodiId, EmbyArtwork, EmbyId FROM Playlist")
         else:
-            self.cursor.execute(f"SELECT EmbyFavourite, KodiId, EmbyArtwork, EmbyId FROM {Table}")
+            return []
 
         return self.cursor.fetchall()
 
@@ -1726,35 +1309,6 @@ class EmbyDatabase:
 
         return False
 
-    def get_EmbyArtwork_multi_db(self, EmbyId, EmbyType, LibraryId, Index):
-        if LibraryId:
-            self.cursor.execute(f"SELECT LibraryIds, EmbyArtwork FROM {EmbyType} WHERE EmbyId = ?", (EmbyId,))
-            Data = self.cursor.fetchone()
-
-            if Data:
-                LibraryIds = Data[0].split(";")[Index]
-                Temp = LibraryIds.split(",")
-
-                if str(LibraryId) in Temp:
-                    return True, Data[1]
-        else:
-            self.cursor.execute(f"SELECT KodiId, EmbyArtwork FROM {EmbyType} WHERE EmbyId = ?", (EmbyId,))
-            Data = self.cursor.fetchone()
-
-            if Data:
-                KodiIds = Data[0].split(";")
-
-                if KodiIds[Index]:
-                    return True, Data[1]
-
-        return False, ""
-
-    def remove_item_by_parentid(self, EmbyParentId, EmbyType, EmbyLibraryId):
-        self.cursor.execute(f"SELECT EmbyId FROM {EmbyType} WHERE EmbyParentId = ?", (EmbyParentId,))
-        EmbyIds = self.cursor.fetchall()
-
-        for EmbyId in EmbyIds:
-            self.remove_item(EmbyId[0], EmbyType, EmbyLibraryId)
 
     def isLinked_EmbyMusicAlbumId(self, EmbyLibraryId, EmbyMusicAlbumId):
         self.cursor.execute("SELECT EXISTS(SELECT 1 FROM EmbyLibraryMapping WHERE EmbyMusicAlbumId = ? AND EmbyLibraryId = ?)", (EmbyMusicAlbumId, EmbyLibraryId))
@@ -1898,18 +1452,6 @@ class EmbyDatabase:
         self.cursor.execute("SELECT EmbyId FROM BoxSet")
         return self.cursor.fetchall()
 
-    def get_item_by_memo(self, Memo):
-        self.cursor.execute("SELECT KodiId FROM Tag WHERE Memo = ?", (Memo,))
-        Tags = self.cursor.fetchall()
-        KodiIds = ()
-
-        for Tag in Tags:
-            KodiIds += Tag
-
-        return KodiIds
-
-    def remove_item_by_memo(self, Memo):
-        self.cursor.execute("DELETE FROM Tag WHERE Memo = ?", (Memo,))
 
     def get_KodiId_by_EmbyId(self, EmbyId):
         for EmbyType in EmbyTypesWithKodiId:
@@ -1929,6 +1471,17 @@ class EmbyDatabase:
             return Data[0]
 
         return None
+
+    def get_similar_item(self, EmbyId, EmbyType):
+        self.cursor.execute(f"""
+            SELECT Item.KodiId, Library.EmbyLibraryName
+            FROM {EmbyType} AS Item
+            LEFT JOIN EmbyLibraryMapping AS Mapping ON Mapping.EmbyId = Item.EmbyId
+            LEFT JOIN LibrarySyncedMirrow AS Library ON Library.EmbyLibraryId = Mapping.EmbyLibraryId
+            WHERE Item.EmbyId = ?
+            ORDER BY Mapping.EmbyLibraryId, Library.EmbyLibraryName
+        """, (EmbyId,))
+        return self.cursor.fetchall()
 
     def get_metadata_by_EmbyId_EmbyType(self, EmbyId, EmbyContentType):
         ContentData = None
@@ -1995,7 +1548,7 @@ class EmbyDatabase:
                     MediaSources[MediaSourceIndex]['IndexMappingSubtitleEmby'][str(SubtitleStreamData[0])] = int(SubtitleStreamData[1])
                     MediaSources[MediaSourceIndex]['IndexMappingSubtitleKodi'][int(SubtitleStreamData[1])] = str(SubtitleStreamData[0])
 
-        return ContentData[0], EmbyContentType, MediaSources
+        return ContentData[0], EmbyContentType, versions.sort_sources(MediaSources)
 
     def get_KodiId_LibraryId_by_EmbyId_EmbyType(self, EmbyId, EmbyType):
         self.cursor.execute(f"SELECT KodiId, LibraryIds FROM {EmbyType} WHERE EmbyId = ?", (EmbyId,))
@@ -2010,57 +1563,6 @@ class EmbyDatabase:
         self.cursor.execute(f"SELECT * FROM {EmbyType}")
         return self.cursor.fetchall()
 
-    def get_KodiId_by_EmbyId_and_LibraryId(self, EmbyId, EmbyType, EmbyLibraryId, LibrarySyncedKodiDBs):
-        self.cursor.execute(f"SELECT KodiId, LibraryIds FROM {EmbyType} WHERE EmbyId = ?", (EmbyId,))
-        Data = self.cursor.fetchone()
-
-        if Data:
-            if EmbyType == "MusicArtist":
-                Id = f"{EmbyLibraryId}{EmbyType}"
-
-                if Id in LibrarySyncedKodiDBs:
-                    KodiDB = LibrarySyncedKodiDBs[Id]
-
-                    if KodiDB == "video,music": # mixed content
-                        return None, None
-
-                    KodiIdsDBs = Data[0].split(";")
-                    LibraryIdsDBs = Data[1].split(";")
-
-                    # Verify LibraryId
-                    if KodiDB == "video":
-                        KodiIds = KodiIdsDBs[1].split(",")
-                        LibraryIds = LibraryIdsDBs[1].split(",")
-                    else:
-                        KodiIds = KodiIdsDBs[0].split(",")
-                        LibraryIds = LibraryIdsDBs[0].split(",")
-
-                    try:
-                        Index = LibraryIds.index(str(EmbyLibraryId))
-                    except:
-                        return None, None
-
-                    return KodiIds[Index], KodiDB
-
-                return None, None
-
-            if EmbyType in ("MusicAlbum", "Audio"):
-                if f"{EmbyLibraryId}Playlist" in LibrarySyncedKodiDBs: # Request by Playlist library, accept any valid synced EmbyId
-                    KodiIds = Data[0].split(",")
-                    return KodiIds[0], "music"
-
-                LibraryIds = Data[1].split(",")
-
-                if EmbyLibraryId not in LibraryIds:
-                    return None, None
-
-                LibraryIndex = LibraryIds.index(EmbyLibraryId)
-                KodiIds = Data[0].split(",")
-                return KodiIds[LibraryIndex], "music"
-
-            return Data[0], "music"
-
-        return None, None
 
     def get_MusicAlbum_by_EmbyId(self, EmbyId):
         self.cursor.execute("SELECT KodiId, LibraryIds FROM MusicAlbum WHERE EmbyId = ?", (EmbyId,))
@@ -2094,22 +1596,22 @@ class EmbyDatabase:
 
     def add_streamdata(self, EmbyId, MediaSources):
         self.remove_item_streaminfos(EmbyId)
-        SQLData = ()
-        SQLData1 = ()
-        SQLData2 = ()
-        SQLData3 = ()
+        SQLData = []
+        SQLData1 = []
+        SQLData2 = []
+        SQLData3 = []
 
-        for MediaSource in MediaSources:
-            SQLData += ((EmbyId, MediaSource['Id'], MediaSource['Path'], MediaSource['Name'], MediaSource['Size'], MediaSource['IntroStartPositionTicks'], MediaSource['IntroEndPositionTicks'], MediaSource['CreditsPositionTicks']),)
+        for MediaSource in versions.sort_sources(MediaSources):
+            SQLData.append((EmbyId, MediaSource['Id'], MediaSource['Path'], MediaSource['Name'], MediaSource['Size'], MediaSource['IntroStartPositionTicks'], MediaSource['IntroEndPositionTicks'], MediaSource['CreditsPositionTicks']))
 
             for IndexVideoStream, VideoStream in enumerate(MediaSource['KodiStreams']['Video']):
-                SQLData1 += ((EmbyId, MediaSource['Id'], VideoStream['Index'], VideoStream['codec'], VideoStream['BitRate'], VideoStream['width'], IndexVideoStream),)
+                SQLData1.append((EmbyId, MediaSource['Id'], VideoStream['Index'], VideoStream['codec'], VideoStream['BitRate'], VideoStream['width'], IndexVideoStream))
 
             for IndexAudioStream, AudioStream in enumerate(MediaSource['KodiStreams']['Audio']):
-                SQLData2 += ((EmbyId, MediaSource['Id'], AudioStream['Index'], AudioStream['DisplayTitle'], AudioStream['codec'], AudioStream['BitRate'], IndexAudioStream),)
+                SQLData2.append((EmbyId, MediaSource['Id'], AudioStream['Index'], AudioStream['DisplayTitle'], AudioStream['codec'], AudioStream['BitRate'], IndexAudioStream))
 
             for IndexSubtitleStream, SubtitleStream in enumerate(MediaSource['KodiStreams']['Subtitle']):
-                SQLData3 += ((EmbyId, MediaSource['Id'], SubtitleStream['Index'], SubtitleStream['codec'], SubtitleStream['language'], SubtitleStream['DisplayTitle'], SubtitleStream['external'], IndexSubtitleStream),)
+                SQLData3.append((EmbyId, MediaSource['Id'], SubtitleStream['Index'], SubtitleStream['codec'], SubtitleStream['language'], SubtitleStream['DisplayTitle'], SubtitleStream['external'], IndexSubtitleStream))
 
         if SQLData:
             self.cursor.executemany("INSERT OR REPLACE INTO MediaSources (EmbyId, MediaSourceId, Path, Name, Size, IntroStart, IntroEnd, CreditsStart) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", SQLData)
@@ -2127,19 +1629,3 @@ class EmbyDatabase:
         del SQLData1
         del SQLData2
         del SQLData3
-
-def join_Ids(Ids):
-    IdsFiltered = []
-    DataFound = False
-
-    for Id in Ids:
-        if Id:
-            IdsFiltered.append(str(Id))
-            DataFound = True
-        else:
-            IdsFiltered.append("")
-
-    if DataFound:
-        return ";".join(IdsFiltered)
-
-    return None

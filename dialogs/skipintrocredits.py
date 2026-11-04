@@ -1,6 +1,6 @@
 import xbmcgui
 
-class SkipIntro(xbmcgui.WindowXMLDialog):
+class SkipPrompt(xbmcgui.WindowXMLDialog):
     def __init__(self, *args, **kwargs):
         self.dialog_open = False
         self.JumpFunction = None

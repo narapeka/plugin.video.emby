@@ -1,12 +1,17 @@
-from urllib.parse import quote
+from urllib.parse import urlencode
+
 import xbmcvfs
-import xbmc
-from helper import utils
 from database import dbio
+from helper import utils
 
-NodexIndexAlphabet = {"0": "02", "1": "03", "2": "04", "3": "05", "4": "06", "5": "07", "6": "08", "7": "09", "8": "10", "9": "11", "a": "12", "b": "13", "c": "14", "d": "15", "e": "16", "f": "17", "g": "18", "h": "19", "i": "20", "j": "21", "k": "22", "l": "23", "m": "24", "n": "25", "o": "26", "p": "27", "q": "28", "r": "29", "s": "30", "t": "31", "u": "32", "v": "33", "w": "34", "x": "35", "y": "36", "z": "37"}
 
-# filename, label, icon, content, [(rule1, Filter, Operator),...], [direction, order], useLimit, group, Subfolder
+PLUGIN_PATH = "plugin://plugin.service.emby-next-gen/?"
+XML_HEADER = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>\n'
+PLAYLIST_NODE_FOLDERS = (
+    "special://profile/library/music/emby_playlistsaudio_Playlists/",
+    "special://profile/library/video/emby_playlistsvideo_Playlists/",
+)
+
 SyncNodes = {
     'tvshows': [
         ('letter', utils.Translate(33611), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "tvshows", (("tag", "is", "LIBRARYTAG"), ("sorttitle", "startswith")), ("ascending", "sorttitle"), False, False, ("letter", "LETTER")),
@@ -21,7 +26,6 @@ SyncNodes = {
         ('years', utils.Translate(33218), 'DefaultYear.png', "tvshows", (("tag", "is", "LIBRARYTAG"),), ("descending", "year"), False, "years"),
         ('actors', utils.Translate(33219), 'DefaultActor.png', "tvshows", (("tag", "is", "LIBRARYTAG"),), ("ascending", "title"), False, "actors"),
         ('tags', utils.Translate(33220), 'DefaultTags.png', "tvshows", (("tag", "is", "LIBRARYTAG"),), ("ascending", "title"), False, "tags"),
-        ('collections', utils.Translate(33612), 'DefaultTags.png', "tvshows", (("PLUGIN", "collections", "tvshow"),)),
         ('favorites', utils.Translate(33558), 'DefaultTags.png', "tvshows", (("tag", "is", "LIBRARYTAG"), ("tag", "endswith", "(Favorites)")), ("ascending", "title"), False, False),
         ('unwatched', utils.Translate(33170), 'OverlayUnwatched.png', "tvshows", (("tag", "is", "LIBRARYTAG"), ("inprogress", "false"), ("playcount", "is", "0")), ("random",), True, False),
         ('unwatchedepisodes', utils.Translate(33344), 'OverlayUnwatched.png', "episodes", (("tag", "is", "LIBRARYTAG"), ("inprogress", "false"), ("playcount", "is", "0")), ("random",), False, False),
@@ -46,7 +50,7 @@ SyncNodes = {
         ('years', utils.Translate(33218), 'DefaultYear.png', "movies", (("tag", "is", "LIBRARYTAG"),), ("descending", "year"), False, "years"),
         ('actors', utils.Translate(33219), 'DefaultActor.png', "movies", (("tag", "is", "LIBRARYTAG"),), ("ascending", "title"), False, "actors"),
         ('tags', utils.Translate(33220), 'DefaultTags.png', "movies", (("tag", "is", "LIBRARYTAG"),), ("ascending", "title"), False, "tags"),
-        ('collections', utils.Translate(33612), 'DefaultSets.png', "movies", (("PLUGIN", "collections", "movie"),)),
+        ('collections', utils.Translate(33612), 'DefaultSets.png', "movies", (("tag", "is", "LIBRARYTAG"),), ("ascending", "sorttitle"), False, "sets"),
         ('favorites', utils.Translate(33558), 'DefaultTags.png', "movies", (("tag", "is", "LIBRARYTAG"), ("tag", "endswith", "(Favorites)")), ("ascending", "title"), False, False),
         ('studios', utils.Translate(33249), 'DefaultStudios.png', "movies", (("tag", "is", "LIBRARYTAG"),), ("ascending", "title"), False, "studios"),
         ('recentlyplayed', utils.Translate(33350), 'DefaultMusicRecentlyPlayed.png', "movies", (("tag", "is", "LIBRARYTAG"), ("inprogress", "false"), ("playcount", "greaterthan", "0")), ("descending", "lastplayed"), True, False),
@@ -69,7 +73,6 @@ SyncNodes = {
         ('unwatched', utils.Translate(33170), 'OverlayUnwatched.png', "musicvideos", (("tag", "is", "LIBRARYTAG"), ("inprogress", "false"), ("playcount", "is", "0")), ("random",), True, False),
         ('artists', utils.Translate(33343), 'DefaultMusicArtists.png', "musicvideos", (("tag", "is", "LIBRARYTAG"),), ("ascending", "artists"), False, "artists"),
         ('tags', utils.Translate(33220), 'DefaultTags.png', "musicvideos", (("tag", "is", "LIBRARYTAG"),), ("ascending", "title"), False, "tags"),
-        ('collections', utils.Translate(33612), 'DefaultSets.png', "musicvideos", (("PLUGIN", "collections", "musicvideo"),)),
         ('favorites', utils.Translate(33558), 'DefaultTags.png', "musicvideos", (("tag", "is", "LIBRARYTAG"), ("tag", "endswith", "(Favorites)")), ("ascending", "title"), False, False),
         ('recentlyplayed', utils.Translate(33350), 'DefaultMusicRecentlyPlayed.png', "musicvideos", (("tag", "is", "LIBRARYTAG"), ("inprogress", "false"), ("playcount", "greaterthan", "0")), ("descending", "lastplayed"), True, False),
         ('resolutionhd', utils.Translate(33359), 'DefaultIconInfo.png', "musicvideos", (("tag", "is", "LIBRARYTAG"), ("videoresolution", "is", "1080")), ("ascending", "sorttitle"), False, False),
@@ -86,7 +89,7 @@ SyncNodes = {
         ('random', utils.Translate(33883), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "movies", (("tag", "is", "LIBRARYTAG"),), ("random",), True, False),
         ('unwatched', utils.Translate(33170), 'OverlayUnwatched.png', "movies", (("tag", "is", "LIBRARYTAG"), ("inprogress", "false"), ("playcount", "is", "0")), ("random",), True, False),
         ('tags', utils.Translate(33220), 'DefaultTags.png', "movies", (("tag", "is", "LIBRARYTAG"),), ("ascending", "title"), False, "tags"),
-        ('collections', utils.Translate(33612), 'DefaultSets.png', "movies", (("PLUGIN", "collections", "movie"),)),
+        ('collections', utils.Translate(33612), 'DefaultSets.png', "movies", (("tag", "is", "LIBRARYTAG"),), ("ascending", "sorttitle"), False, "sets"),
         ('favorites', utils.Translate(33558), 'DefaultTags.png', "movies", (("tag", "is", "LIBRARYTAG"), ("tag", "endswith", "(Favorites)")), ("ascending", "title"), False, False),
         ('recentlyplayed', utils.Translate(33350), 'DefaultMusicRecentlyPlayed.png', "movies", (("tag", "is", "LIBRARYTAG"), ("inprogress", "false"), ("playcount", "greaterthan", "0")), ("descending", "lastplayed"), True, False),
         ('resolutionhd', utils.Translate(33359), 'DefaultIconInfo.png', "movies", (("tag", "is", "LIBRARYTAG"), ("videoresolution", "is", "1080")), ("ascending", "sorttitle"), False, False),
@@ -155,188 +158,10 @@ SyncNodes = {
         ('emby_favorite_episodes', f"EMBY: {utils.Translate(30182)}", 'DefaultFavourites.png', "episodes", (("PLUGIN", "favepisodes", "episode"),)),
         ('emby_favorite_seasons', f"EMBY: {utils.Translate(33576)}", 'DefaultFavourites.png', "seasons", (("PLUGIN", "favseasons", "season"),)),
         ('emby_favorite_musicvideos', f"EMBY: {utils.Translate(33385)}", 'DefaultFavourites.png', "musicvideos", (("tag", "is", "Musicvideos (Favorites)"),), ("ascending", "sorttitle"), False, False),
-        ('emby_collections_movies', f"EMBY: {utils.Translate(33555)}", 'DefaultTags.png', "movies", (("PLUGIN", "collections", "movie"),)),
-        ('emby_collections_tvshows', f"EMBY: {utils.Translate(33556)}", 'DefaultTags.png', "tvshows", (("PLUGIN", "collections", "tvshow"),)),
-        ('emby_collections_musicvideos', f"EMBY: {utils.Translate(33557)}", 'DefaultTags.png', "musicvideos", (("PLUGIN", "collections", "musicvideo"),)),
-        ('emby_downloaded_movies', f"EMBY: {utils.Translate(33629)}", 'DefaultMovies.png', "movies", (("path", "contains", "EMBY-offline-content"),), ("ascending", "sorttitle"), False, False),
-        ('emby_downloaded_series', f"EMBY: {utils.Translate(33662)}", 'DefaultAddonVideo.png', "tvshows", (("title", "endswith", " (download)"),), ("ascending", "sorttitle"), False, False),
-        ('emby_downloaded_episodes', f"EMBY: {utils.Translate(33630)}", 'DefaultAddonVideo.png', "episodes", (("path", "contains", "EMBY-offline-content"),), ("ascending", "sorttitle"), False, False),
-        ('emby_downloaded_musicvideos', f"EMBY: {utils.Translate(33631)}", 'DefaultMusicVideos.png', "musicvideos", (("path", "contains", "EMBY-offline-content"),), ("ascending", "sorttitle"), False, False)
+        ('emby_collections_movies', f"EMBY: {utils.Translate(33555)}", 'DefaultTags.png', "movies", (), ("ascending", "sorttitle"), False, "sets"),
     ],
-    'playlistsaudio': [
-    ],
-    'playlistsvideo': [
-    ]
-} # playlist nodes are build while sync, but create empty folders
-DynamicNodes = {
-    'tvshows': [
-        ('Letter', utils.Translate(33611), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "Series", False),
-        ('Series', utils.Translate(33349), 'DefaultTVShows.png', "Series", False),
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True),
-        ('Recentlyadded', utils.Translate(30170), 'DefaultRecentlyAddedEpisodes.png', "Series", False),
-        ('Recentlyadded', utils.Translate(30175), 'DefaultRecentlyAddedEpisodes.png', "Episode", False),
-        ('Unwatched', utils.Translate(33345), 'OverlayUnwatched.png', "Series", False),
-        ('Unwatched', utils.Translate(33344), 'OverlayUnwatched.png', "Episode", False),
-        ('Favorite', utils.Translate(33558), 'DefaultFavourites.png', "tvshows", False),
-        ('Favorite', utils.Translate(33893), 'DefaultFavourites.png', "Series", False),
-        ('Favorite', utils.Translate(30182), 'DefaultFavourites.png', "Episode", False),
-        ('Tag', utils.Translate(33889), 'DefaultTags.png', "tvshows", True),
-        ('Inprogress', utils.Translate(33169), 'DefaultInProgressShows.png', "Episode", False),
-        ('Genre', utils.Translate(135), 'DefaultGenre.png', "Series", True),
-        ('BoxSet', utils.Translate(30185), 'DefaultSets.png', "tvshows", True),
-        ('Upcoming', utils.Translate(33894), 'DefaultSets.png', "Episode", False),
-        ('NextUp', utils.Translate(30179), 'DefaultSets.png', "Episode", False),
-        ('Resume', utils.Translate(33895), 'DefaultInProgressShows.png', "Episode", False),
-        ('Random', utils.Translate(33886), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "Series", False),
-        ('Random', utils.Translate(33885), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "Episode", False)
-    ],
-    'mixedvideo': [
-        ('Letter', utils.Translate(33870), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "Movie", False),
-        ('Letter', utils.Translate(33871), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "Series", False),
-        ('Letter', utils.Translate(33873), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "Video", False),
-        ('Letter', utils.Translate(33869), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "MusicArtist", False),
-        ('Movie', utils.Translate(30302), 'DefaultMovies.png', "Movie", False),
-        ('Series', utils.Translate(33349), 'DefaultTVShows.png', "Series", False),
-        ('Video', utils.Translate(33367), 'DefaultAddonVideo.png', "Video", False),
-        ('MusicVideo', utils.Translate(33363), 'DefaultMusicVideos.png', "MusicVideo", False),
-        ('MusicArtist', utils.Translate(33343), 'DefaultMusicArtists.png', "MusicArtist", False),
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True),
-        ('Tag', utils.Translate(33889), 'DefaultTags.png', "videos", True),
-        ('Favorite', utils.Translate(33558), 'DefaultFavourites.png', "videos", False),
-        ('Favorite', utils.Translate(33862), 'DefaultFavourites.png', "Movie", False),
-        ('Favorite', utils.Translate(33893), 'DefaultFavourites.png', "Series", False),
-        ('Favorite', utils.Translate(30182), 'DefaultFavourites.png', "Episode", False),
-        ('Favorite', utils.Translate(33866), 'DefaultFavourites.png', "MusicVideo", False),
-        ('Recentlyadded', utils.Translate(30174), 'DefaultRecentlyAddedMovies.png', "Movie", False),
-        ('Recentlyadded', utils.Translate(33867), 'DefaultRecentlyAddedMusicVideos.png', "MusicVideo", False),
-        ('Recentlyadded', utils.Translate(30170), 'DefaultRecentlyAddedEpisodes.png', "Series", False),
-        ('Recentlyadded', utils.Translate(30175), 'DefaultRecentlyAddedEpisodes.png', "Episode", False),
-        ('Unwatched', utils.Translate(30189), 'OverlayUnwatched.png', "Movie", False),
-        ('Unwatched', utils.Translate(33877), 'OverlayUnwatched.png', "MusicVideo", False),
-        ('Unwatched', utils.Translate(33345), 'OverlayUnwatched.png', "Series", False),
-        ('Unwatched', utils.Translate(33344), 'OverlayUnwatched.png', "Episode", False),
-        ('Inprogress', utils.Translate(30177), 'DefaultInProgressShows.png', "Movie", False),
-        ('Inprogress', utils.Translate(33868), 'DefaultInProgressShows.png', "MusicVideo", False),
-        ('Inprogress', utils.Translate(30178), 'DefaultInProgressShows.png', "Episode", False),
-        ('Genre', utils.Translate(33880), 'DefaultGenre.png', "Series", True),
-        ('Genre', utils.Translate(33881), 'DefaultGenre.png', "Movie", True),
-        ('MusicGenre', utils.Translate(33879), 'DefaultGenre.png', "MusicVideo", True),
-        ('Random', utils.Translate(33886), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "Series", False),
-        ('Random', utils.Translate(33882), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "Movie", False),
-        ('Random', utils.Translate(33885), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "Episode", False),
-        ('Random', utils.Translate(33887), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "MusicVideo", False)
-    ],
-    'movies': [
-        ('Letter', utils.Translate(33611), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "Movie", False),
-        ('Movie', utils.Translate(30302), 'DefaultMovies.png', "Movie", False),
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True),
-        ('Recentlyadded', utils.Translate(33896), 'DefaultRecentlyAddedMovies.png', "Movie", False),
-        ('Inprogress', utils.Translate(33169), 'DefaultInProgressShows.png', "Movie", False),
-        ('Unwatched', utils.Translate(33170), 'OverlayUnwatched.png', "Movie", False),
-        ('BoxSet', utils.Translate(20434), 'DefaultSets.png', "movies", True),
-        ('Recommendations', utils.Translate(33884), 'DefaultInProgressShows.png', "Movie", False),
-        ('Tag', utils.Translate(33889), 'DefaultTags.png', "movies", True),
-        ('Favorite', utils.Translate(33558), 'DefaultFavourites.png', "movies", False),
-        ('Favorite', utils.Translate(33862), 'DefaultFavourites.png', "Movie", False),
-        ('Genre', utils.Translate(135), 'DefaultGenre.png', "Movie", True),
-        ('Random', utils.Translate(33883), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "Movie", False)
-    ],
-    'channels': [
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True)
-    ],
-    'boxsets': [
-        ('Letter', utils.Translate(33611), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "BoxSet", False),
-        ('BoxSet', utils.Translate(30185), 'DefaultSets.png', "BoxSet", True),
-        ('Favorite', utils.Translate(33863), 'DefaultFavourites.png', "BoxSet", False),
-    ],
-    'musicvideos': [
-        ('Letter', utils.Translate(33611), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "MusicArtist", False),
-        ('MusicVideo', utils.Translate(33363), 'DefaultMusicVideos.png', "MusicVideo", False),
-        ('MusicArtist', utils.Translate(33343), 'DefaultMusicArtists.png', "MusicArtist", False),
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True),
-        ('Recentlyadded', utils.Translate(33896), 'DefaultRecentlyAddedMusicVideos.png', "MusicVideo", False),
-        ('Inprogress', utils.Translate(33169), 'DefaultInProgressShows.png', "MusicVideo", False),
-        ('Unwatched', utils.Translate(33170), 'OverlayUnwatched.png', "MusicVideo", False),
-        ('Tag', utils.Translate(33889), 'DefaultTags.png', "musicvideos", True),
-        ('BoxSet', utils.Translate(30185), 'DefaultSets.png', "musicvideos", True),
-        ('Random', utils.Translate(33883), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "MusicVideo", False),
-        ('Favorite', utils.Translate(33890), 'DefaultFavourites.png', "musicvideos", False),
-        ('Favorite', utils.Translate(33866), 'DefaultFavourites.png', "MusicVideo", False),
-        ('MusicGenre', utils.Translate(135), 'DefaultGenre.png', "MusicVideo", True)
-    ],
-    'homevideos': [
-        ('Letter', utils.Translate(33873), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "Video", False),
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True),
-        ('Video', utils.Translate(33367), 'DefaultAddonVideo.png', "Video", False),
-        ('PhotoAlbum', utils.Translate(33369), 'DefaultAddonVideo.png', "PhotoAlbum", True),
-        ('Tag', utils.Translate(33889), 'DefaultTags.png', "homevideos", True),
-        ('Favorite', utils.Translate(33558), 'DefaultFavourites.png', "Video", False),
-        ('BoxSet', utils.Translate(30185), 'DefaultSets.png', "BoxSet", True),
-        ('Recentlyadded', utils.Translate(33896), 'DefaultRecentlyAddedMovies.png', "Video", False)
-    ],
-    'trailers': [
-        ('Letter', utils.Translate(33873), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "Trailer", False),
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True),
-        ('Trailer', utils.Translate(33594), 'DefaultAddonVideo.png', "Trailer", False),
-        ('Recentlyadded', utils.Translate(33896), 'DefaultRecentlyAddedMovies.png', "Trailer", False)
-    ],
-    'homephotos': [
-        ('Letter', utils.Translate(33872), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "PhotoAlbum", False),
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True),
-        ('Photo', utils.Translate(33368), 'DefaultPicture.png', "Photo", False),
-        ('PhotoAlbum', utils.Translate(33369), 'DefaultAddonPicture.png', "PhotoAlbum", True),
-        ('Tag', utils.Translate(33889), 'DefaultTags.png', "homevideos", True),
-        ('Favorite', utils.Translate(33558), 'DefaultFavourites.png', "Photo", False),
-        ('BoxSet', utils.Translate(30185), 'DefaultSets.png', "BoxSet", True),
-        ('Recentlyadded', utils.Translate(33373), 'DefaultRecentlyAddedMovies.png', "Photo", False),
-        ('Recentlyadded', utils.Translate(33566), 'DefaultRecentlyAddedMovies.png', "PhotoAlbum", False)
-    ],
-    'audiobooks': [
-        ('Letter', utils.Translate(33611), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "MusicArtist", False),
-        ('MusicArtist', utils.Translate(33343), 'DefaultMusicArtists.png', "MusicArtist", False),
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True),
-        ('Audio', utils.Translate(33377), 'DefaultFolder.png', "Audio", False),
-        ('Recentlyadded', utils.Translate(33896), 'DefaultRecentlyAddedMovies.png', "Audio", False),
-        ('Inprogress', utils.Translate(33169), 'DefaultInProgressShows.png', "Audio", False),
-        ('Favorite', utils.Translate(33890), 'DefaultFavourites.png', "Audio", False),
-        ('Random', utils.Translate(33883), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "Audio", False),
-        ('MusicGenre', utils.Translate(135), 'DefaultGenre.png', "Audio", True),
-        ('Unwatched', utils.Translate(33170), 'OverlayUnwatched.png', "Audio", False)
-    ],
-    'podcasts': [
-        ('Letter', utils.Translate(33611), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "MusicArtist", False),
-        ('MusicArtist', utils.Translate(33343), 'DefaultMusicArtists.png', "MusicArtist", False),
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True),
-        ('Audio', utils.Translate(33382), 'DefaultFolder.png', "Audio", False),
-        ('Recentlyadded', utils.Translate(33896), 'DefaultRecentlyAddedMovies.png', "Audio", False),
-        ('Inprogress', utils.Translate(33169), 'DefaultInProgressShows.png', "Audio", False),
-        ('Favorite', utils.Translate(33890), 'DefaultFavourites.png', "Audio", False),
-        ('Random', utils.Translate(33381), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "Audio", False),
-        ('MusicGenre', utils.Translate(135), 'DefaultGenre.png', "Audio", True),
-        ('Unwatched', utils.Translate(33170), 'OverlayUnwatched.png', "Audio", False)
-    ],
-    'music': [
-        ('Letter', utils.Translate(33611), 'special://home/addons/plugin.service.emby-next-gen/resources/letter.png', "MusicArtist", False),
-        ('MusicArtist', utils.Translate(33343), 'DefaultMusicArtists.png', "MusicArtist", False),
-        ('Folder', utils.Translate(33335), 'DefaultFolder.png', "Folder", True),
-        ('Random', utils.Translate(33380), 'special://home/addons/plugin.service.emby-next-gen/resources/random.png', "Audio", False),
-        ('MusicGenre', utils.Translate(135), 'DefaultMusicGenres.png', "Audio", True),
-        ('Unwatched', utils.Translate(33170), 'OverlayUnwatched.png', "Audio", False),
-        ('Favorite', utils.Translate(33623), 'DefaultFavourites.png', "Audio", False),
-        ('Favorite', utils.Translate(33890), 'DefaultFavourites.png', "music", False),
-        ('Recentlyadded', utils.Translate(33896), 'DefaultRecentlyAddedMovies.png', "Audio", False)
-    ],
-    'rootaudio': [
-        ('Playlist', 'Playlists', 'DefaultMusicPlaylists.png', "Playlist", True, True),
-        ('Favorite', utils.Translate(33890), 'DefaultFavourites.png', "music", False, False),
-        ('Search', utils.Translate(33626), 'DefaultAddonsSearch.png', "music", False, False)
-    ],
-    'rootvideo': [
-        ('TvChannel', utils.Translate(33593), 'DefaultAddonPVRClient.png', 'TvChannel', False, True),
-        ('Playlist', utils.Translate(33376), 'DefaultVideoPlaylists.png', "Playlist", True, True),
-        ('Favorite', utils.Translate(33890), 'DefaultFavourites.png', "videos", False, False),
-        ('Search', utils.Translate(33626), 'DefaultAddonsSearch.png', "videos", False, False)
-    ]
+    'playlistsaudio': [],
+    'playlistsvideo': [],
 }
 
 
@@ -346,83 +171,251 @@ class Views:
         self.LibrarySynced = LibrarySynced
         self.API = API
         self.ViewItems = ViewItems
-        self.Nodes = {"NodesDynamic": [], "NodesSynced": []}
-        self.PictureNodes = {}
-        self.update_nodes()
+        self.NodesSynced = []
 
-    def update_nodes(self):
-        self.Nodes = {"NodesDynamic": [], "NodesSynced": []}
-        self.PictureNodes = {}
+    def update_nodes(self, RemoveEmpty=False):
+        Synced = {}
+        for LibraryId, _, ItemType, _ in self.LibrarySynced:
+            Synced.setdefault(str(LibraryId), set()).add(ItemType)
 
-        for library_id, Data in list(self.ViewItems.items()):
-            view = {'LibraryId': library_id, 'Name': Data[0], 'Tag': Data[0], 'ContentType': Data[1], "Icon": Data[2], 'FilteredName': utils.valid_Filename(Data[0]), "ServerId": self.ServerData["ServerId"]}
+        Nodes = []
 
-            for Dynamic in (True, False):
-                if view['ContentType'] in ("books", "games", "photos"):
-                    continue
+        for LibraryId, Data in list(self.ViewItems.items()):
+            if utils.SystemShutdown:
+                return
 
-                if utils.SystemShutdown:
-                    return
+            Name, LibraryType, Icon = Data
+            Types = Synced.get(str(LibraryId))
+            if not Types:
+                continue
 
-                if Dynamic or f"'{view['LibraryId']}'" in str(self.LibrarySynced):
-                    if view['ContentType'] in ('music', 'audiobooks', 'podcasts'):
-                        view['Tag'] = f"EmbyLibraryId-{library_id}"
-                        add_xpsplaylist(view)
-                        self.add_nodes(view, Dynamic)
-                    elif view['ContentType'] == 'playlists':
-                        viewMod = view.copy()
-                        viewMod['ContentType'] = 'playlistsaudio'
-                        add_xpsplaylist(viewMod)
-                        self.add_nodes(viewMod, Dynamic)
-                        viewMod['ContentType'] = 'playlistsvideo'
-                        add_xpsplaylist(viewMod)
-                        self.add_nodes(viewMod, Dynamic)
-                    elif view['ContentType'] == 'mixed':
-                        if Dynamic:
-                            viewMod = view.copy()
-                            viewMod['ContentType'] = 'music'
-                            add_xpsplaylist(viewMod)
-                            self.add_nodes(viewMod, Dynamic)
-                            viewMod['ContentType'] = 'mixedvideo'
-                            add_xpsplaylist(viewMod)
-                            self.add_nodes(viewMod, Dynamic)
-                        else:
-                            viewMod = view.copy()
+            if LibraryType == "mixed":
+                ContentTypes = []
+                if Types.intersection(("Movie", "Video")):
+                    ContentTypes.append("movies")
+                if "Series" in Types:
+                    ContentTypes.append("tvshows")
+                if Types.intersection(("Audio", "MusicAlbum", "MusicArtist")):
+                    ContentTypes.append("music")
+            elif LibraryType == "homevideos":
+                ContentTypes = ("movies",)
+            elif LibraryType == "playlists":
+                ContentTypes = ("playlistsaudio", "playlistsvideo")
+                self.restore_playlist_nodes()
+            elif LibraryType in SyncNodes:
+                ContentTypes = (LibraryType,)
+            else:
+                continue
 
-                            for media in ('movies', 'tvshows', 'music'):
-                                if media in ('movies', 'tvshows'):
-                                    viewMod['Name'] = f"{view['Name']} ({media})"
-                                else:
-                                    viewMod['Name'] = view['Name']
+            for ContentType in ContentTypes:
+                Label = f"{Name} ({ContentType})" if LibraryType == "mixed" and ContentType != "music" else Name
+                Tag = f"EmbyLibraryId-{LibraryId}" if ContentType in ("music", "audiobooks", "podcasts") else Name
+                FolderName = "Playlists" if LibraryType == "playlists" else Name
+                Nodes.extend(self.add_nodes(ContentType, FolderName, Label, Tag, Icon, LibraryId))
 
-                                viewMod['ContentType'] = media
+        if self.ServerData["ServerId"] and Nodes:
+            Nodes.extend(self.add_nodes("rootvideo"))
+            Nodes.extend(self.add_nodes("rootaudio"))
+            self.restore_musicgenre_nodes()
+        elif self.ServerData["ServerId"] and RemoveEmpty:
+            self.delete_root_nodes()
+        self.NodesSynced = Nodes
 
-                                if media == 'music':
-                                    viewMod['Tag'] = f"EmbyLibraryId-{library_id}"
+    def delete_root_nodes(self):
+        for Media, Content in (("video", "rootvideo"), ("music", "rootaudio")):
+            for Node in SyncNodes[Content]:
+                utils.delFile(f"special://profile/library/{Media}/{Node[0]}_{self.ServerData['ServerId']}.xml")
 
-                                add_xpsplaylist(viewMod)
-                                self.add_nodes(viewMod, Dynamic)
-                    elif view['ContentType'] == 'homevideos':
-                        if Dynamic:
-                            viewMod = view.copy()
-                            viewMod['ContentType'] = 'homevideos'
-                            add_xpsplaylist(viewMod)
-                            self.add_nodes(viewMod, Dynamic)
-                            viewMod['ContentType'] = 'homephotos'
-                            self.add_nodes(viewMod, Dynamic)
-                        else:
-                            viewMod = view.copy()
-                            viewMod['ContentType'] = "movies"
-                            add_xpsplaylist(viewMod)
-                            self.add_nodes(viewMod, Dynamic)
-                    else:
-                        add_xpsplaylist(view)
-                        self.add_nodes(view, Dynamic)
+    def add_nodes(self, ContentType, Name="", Label="", Tag="", Icon="", LibraryId=None):
+        Media = "music" if utils.ContentTypes[ContentType] == "audio" else "video"
+        Folder = f"special://profile/library/{Media}/"
+        Nodes = []
+        Root = ContentType in ("rootvideo", "rootaudio")
+        if not Root:
+            Directory = f"emby_{ContentType}_{utils.valid_Filename(Name)}/"
+            Folder += Directory
+            Icon = Icon or {"movies": "DefaultMovies.png", "tvshows": "DefaultTVShows.png",
+                            "musicvideos": "DefaultMusicVideos.png"}.get(ContentType, "DefaultMusicSongs.png")
+            write_index(Folder, f"EMBY: {Label} ({ContentType})", Icon)
+            Nodes.append((Label, f"library://{Media}/{Directory}", Icon))
 
-        self.add_nodes({'ContentType': "rootaudio"}, False)
-        self.add_nodes({'ContentType': "rootvideo"}, False)
-        self.add_nodes({'ContentType': "rootaudio"}, True)
-        self.add_nodes({'ContentType': "rootvideo"}, True)
+        Order = 0
+        for Node in SyncNodes[ContentType]:
+            Order += 1
+            if Root:
+                Filename = f"{Node[0]}_{self.ServerData['ServerId']}"
+                Nodes.append((Node[1][6:], f"library://{Media}/{Filename}.xml", Node[2]))
+                self.set_synced_node(Folder, Filename, Node, Label, Tag, Order)
+            elif len(Node) == 9:
+                Order = self.add_group_nodes(Folder, Node, Tag, LibraryId, Order)
+            else:
+                self.set_synced_node(Folder, Node[0], Node, Label, Tag, Order)
+        return Nodes
+
+    def add_group_nodes(self, Folder, Node, Tag, LibraryId, Order):
+        Subfolder, Group = Node[8]
+        Folder += f"{Subfolder}/"
+        if Group == "LETTER":
+            Entries = [(Letter, Letter, Letter) for Letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
+            Entries.insert(0, ("0-9", "0-9", tuple("0123456789&ÄÖÜ!()@#$*-+=}{[]?:;,.~<>\"'")))
+        else:
+            if "music" not in utils.DatabaseFiles:
+                return Order
+            MusicDB = dbio.DBOpenRO("music", "node_songsbygenres")
+            try:
+                Genres = MusicDB.get_genre(LibraryId)
+            finally:
+                dbio.DBCloseRO("music", "node_songsbygenres")
+            Entries = [(utils.valid_Filename(Genre), Genre, Genre) for Genre in Genres]
+            _, Files = xbmcvfs.listdir(Folder)
+            CurrentFiles = {f"{Filename}.xml" for Filename, _, _ in Entries}
+            for Filename in Files:
+                if Filename.endswith(".xml") and Filename != "index.xml" and Filename not in CurrentFiles:
+                    utils.delFile(f"{Folder}{Filename}")
+
+        write_index(Folder, Node[1], Node[2])
+        for Filename, Label, Value in Entries:
+            Rules = (Node[4][0], Node[4][1] + (Value,))
+            Subnode = (Filename, Label, *Node[2:4], Rules, *Node[5:8])
+            self.set_synced_node(Folder, Filename, Subnode, Label, Tag, Order, 10 if Group != "LETTER" else 1)
+            Order += 1
+        return Order
+
+    def set_synced_node(self, Folder, Filename, Node, LibraryName, Tag, Order, LimitFactor=1):
+        _, Label, Icon, Content, Rules, *Options = Node
+        Label = LibraryName if Label == "LIBRARYNAME" else Label
+        EncodedLabel = utils.encode_XML(Label.strip())
+        if EncodedLabel.isnumeric():
+            EncodedLabel += "&#8203;"
+
+        Plugin = Rules and Rules[0][0] == "PLUGIN"
+        XML = XML_HEADER + f'<node order="{Order}" type="{"folder" if Plugin else "filter"}">\n'
+        XML += f"    <label>{EncodedLabel}</label>\n    <icon>{utils.encode_XML(Icon)}</icon>\n"
+        if Plugin:
+            _, Mode, MediaType = Rules[0]
+            Params = urlencode({"mode": Mode, "mediatype": MediaType,
+                                "libraryname": Tag or LibraryName or "unknown", "server": self.ServerData["ServerId"]})
+            XML += f"    <path>{utils.encode_XML(PLUGIN_PATH + Params)}</path>\n"
+            if len(Options) == 3 and Options[2]:
+                XML += "    <group/>\n"
+        else:
+            Sort, UseLimit, Group = Options
+            XML += f"    <content>{Content}</content>\n"
+            if len(Rules) > 1:
+                XML += "    <match>all</match>\n"
+            for Field, Operator, *Rule in Rules:
+                Prefix = f'    <rule field="{Field}" operator="{Operator}"'
+                if not Rule:
+                    XML += f"{Prefix}/>\n"
+                elif isinstance(Rule[0], tuple):
+                    XML += f"{Prefix}>\n"
+                    XML += "".join(f"        <value>{utils.encode_XML(Value)}</value>\n" for Value in Rule[0])
+                    XML += "    </rule>\n"
+                else:
+                    Value = Tag if Rule[0] == "LIBRARYTAG" else Rule[0]
+                    XML += f"{Prefix}>{utils.encode_XML(Value)}</rule>\n"
+            if len(Sort) == 2:
+                XML += f'    <order direction="{Sort[0]}">{Sort[1]}</order>\n'
+            elif Sort:
+                XML += f"    <order>{Sort[0]}</order>\n"
+            if UseLimit:
+                XML += f"    <limit>{utils.maxnodeitems * LimitFactor}</limit>\n"
+            if Group:
+                XML += f"    <group>{Group}</group>\n"
+
+        write_node(Folder, f"{Filename}.xml", XML + "</node>")
+
+    def restore_playlist_nodes(self):
+        ServerId = self.ServerData["ServerId"]
+        if ServerId not in utils.DatabaseFiles:
+            return
+        EmbyDB = dbio.DBOpenRO(ServerId, "playlist_nodes")
+        try:
+            Playlists = EmbyDB.get_Records_by_EmbyType("Playlist")
+        finally:
+            dbio.DBCloseRO(ServerId, "playlist_nodes")
+        for ItemId, _, _, Icon, LinkedIds, Name in Playlists:
+            self.update_playlist_nodes(ItemId, Name, Icon, LinkedIds)
+
+    def update_playlist_nodes(self, ItemId, Name, Icon, LinkedIds):
+        Filename = f"{self.ServerData['ServerId']}_{ItemId}"
+        Audio, _, _, _, MusicVideos = (LinkedIds or ";;;;").split(";")
+        for Folder, HasItems, Content, Rule, DefaultIcon in (
+            (PLAYLIST_NODE_FOLDERS[0], Audio, "songs", ("comment", "contains", f"EmbyPlaylistId-{ItemId}"), "DefaultMusicSongs.png"),
+            (PLAYLIST_NODE_FOLDERS[1], MusicVideos, "musicvideos", ("tag", "is", Name), "DefaultMusicVideos.png"),
+        ):
+            if HasItems:
+                Node = (Filename, Name, Icon or DefaultIcon, Content, (Rule,), ("ascending", "track"), False, False)
+                self.set_synced_node(Folder, Filename, Node, Name, "", ItemId)
+            elif xbmcvfs.exists(f"{Folder}{Filename}.xml"):
+                utils.delFile(f"{Folder}{Filename}.xml")
+
+    def delete_playlist_nodes(self, ItemId):
+        for Folder in PLAYLIST_NODE_FOLDERS:
+            utils.delFile(f"{Folder}{self.ServerData['ServerId']}_{ItemId}.xml")
+
+    def musicgenre_folder(self, LibraryId, Media):
+        if LibraryId not in self.ViewItems:
+            return None
+        Name, Content, _ = self.ViewItems[LibraryId]
+        if Media == "music":
+            if Content == "mixed":
+                Content = "music"
+            if Content not in ("music", "audiobooks", "podcasts"):
+                return None
+        elif Content != "musicvideos":
+            return None
+        return f"special://profile/library/{Media}/emby_{Content}_{utils.valid_Filename(Name)}/genrenodes/"
+
+    def update_musicgenre_node(self, LibraryId, Media, ItemId, Name, Icon):
+        Folder = self.musicgenre_folder(LibraryId, Media)
+        if not Folder:
+            return
+        LibraryName = self.ViewItems[LibraryId][0]
+        Content, Rule, Tag = ("artists", "disambiguation", f"EmbyLibraryId-{LibraryId}") if Media == "music" else (
+            "musicvideos", "tag", LibraryName)
+        Filename = f"{utils.valid_Filename(Name)}-{ItemId}"
+        Node = (Filename, Name, Icon or "DefaultGenre.png", Content, ((Rule, "is", "LIBRARYTAG"),
+                ("genre", "is", Name)), ("ascending", "title"), False, False)
+        write_index(Folder, utils.Translate(33730), "DefaultGenre.png", 9999)
+        self.set_synced_node(Folder, Filename, Node, LibraryName, Tag, genre_node_order(Name))
+
+    def delete_musicgenre_node(self, LibraryId, Media, ItemId, Name):
+        Folder = self.musicgenre_folder(LibraryId, Media)
+        if Folder and Name:
+            utils.delFile(f"{Folder}{utils.valid_Filename(Name)}-{ItemId}.xml")
+
+    def restore_musicgenre_nodes(self):
+        ServerId = self.ServerData["ServerId"]
+        if ServerId not in utils.DatabaseFiles or not any(Item[2] == "MusicGenre" for Item in self.LibrarySynced):
+            return
+        EmbyDB = dbio.DBOpenRO(ServerId, "musicgenre_nodes")
+        try:
+            Genres = EmbyDB.get_Records_by_EmbyType("MusicGenre")
+        finally:
+            dbio.DBCloseRO(ServerId, "musicgenre_nodes")
+
+        for Index, Media in enumerate(("music", "video")):
+            if Media not in utils.DatabaseFiles:
+                continue
+            SyncedLibraries = {str(LibraryId) for LibraryId, _, ItemType, Databases in self.LibrarySynced
+                               if ItemType == "MusicGenre" and Media in Databases.split(",")
+                               and self.musicgenre_folder(str(LibraryId), Media)}
+            if not SyncedLibraries:
+                continue
+            KodiDB = dbio.DBOpenRO(Media, "musicgenre_nodes")
+            try:
+                for ItemId, KodiIds, _, LibraryIds, Icon in Genres:
+                    KodiId = (KodiIds or ";").split(";")[Index]
+                    Libraries = (LibraryIds or ";").split(";")[Index].split(",")
+                    if KodiId and any(LibraryId in SyncedLibraries for LibraryId in Libraries):
+                        Name = KodiDB.get_genre_name(KodiId)
+                        if Name:
+                            for LibraryId in Libraries:
+                                if LibraryId in SyncedLibraries:
+                                    self.update_musicgenre_node(LibraryId, Media, ItemId, Name, Icon)
+            finally:
+                dbio.DBCloseRO(Media, "musicgenre_nodes")
 
     def update_views(self):
         Data = self.API.get_views()
@@ -433,507 +426,62 @@ class Views:
             return
 
         for library in Libraries:
+            if library['Type'] == 'Channel':
+                continue
+
             IconPath = ""
 
-            if library['Type'] == 'Channel' and library['Name'].lower() == "podcasts":
-                library['ContentType'] = "podcasts"
-            elif library['Type'] == 'Channel' and library['Name'].lower() == "trailers":
-                library['ContentType'] = "trailers"
-            elif library['Type'] == 'Channel':
-                library['ContentType'] = "channels"
-            else:
-                library['ContentType'] = library.get('CollectionType', "mixed")
+            library['ContentType'] = library.get('CollectionType', "mixed")
 
             if "Primary" in library["ImageTags"]:
-                IconPath = utils.image_url_encode(f"dav://127.0.0.1:57342/picture/{self.ServerData['ServerId']}/p-{library['Id']}-0-p-{library['ImageTags']['Primary']}--mime.jpg", "unknown.jpg")
+                IconPath = utils.image_url(self.ServerData['ServerId'], library['Id'], 'Primary', library['ImageTags']['Primary'], "Library")
 
             self.ViewItems[library['Id']] = [utils.decode_XML(library['Name']), library['ContentType'], IconPath]
 
-    # Remove playlist based on LibraryId
-    def delete_playlist_by_id(self, LibraryId):
-        if LibraryId in self.ViewItems:
-            if self.ViewItems[LibraryId][1] in ('music', 'audiobooks', 'podcasts', 'playlistsaudio'):
-                path = 'special://profile/playlists/music/'
-            else:
-                path = 'special://profile/playlists/video/'
+    def delete_node_by_id(self, LibraryId):
+        if LibraryId not in self.ViewItems:
+            return
 
-            PlaylistPath = f"{path}emby_{self.ViewItems[LibraryId][0].replace(' ', '_')}.xsp"
-            utils.delFolder(PlaylistPath)
+        Name, LibraryType, _ = self.ViewItems[LibraryId]
+        if LibraryType == "mixed":
+            ContentTypes = ("movies", "tvshows", "music")
+        elif LibraryType == "homevideos":
+            ContentTypes = ("movies",)
+        elif LibraryType == "playlists":
+            Name = "Playlists"
+            ContentTypes = ("playlistsaudio", "playlistsvideo")
         else:
-            xbmc.log(f"EMBY.emby.views: Delete playlist, library not found: {LibraryId}", 1) # LOGINFO
+            ContentTypes = (LibraryType,)
 
-    def delete_node_by_id(self, LibraryId, RemoveServer=False):
-        if LibraryId in self.ViewItems:
-            ContentTypes = []
-
-            if self.ViewItems[LibraryId][1] == "mixed":
-                ContentTypes.append('movies')
-                ContentTypes.append('tvshows')
-                ContentTypes.append('music')
-                ContentTypes.append('mixed')
+        for ContentType in ContentTypes:
+            Media = "music" if utils.ContentTypes.get(ContentType) == "audio" else "video"
+            Filename = f"emby_{ContentType}_{utils.valid_Filename(Name)}"
+            Folder = f"special://profile/library/{Media}/{Filename}/"
+            if LibraryType == "playlists":
+                _, Files = xbmcvfs.listdir(Folder)
+                for File in Files:
+                    if File.startswith(f"{self.ServerData['ServerId']}_") and File.endswith(".xml"):
+                        utils.delFile(Folder + File)
             else:
-                ContentTypes.append(self.ViewItems[LibraryId][1])
+                utils.delFolder(Folder)
 
-            ContentTypes.append('podcasts')
-            ContentTypes.append('channels')
-            ContentTypes.append('movies')
 
-            for ContentType in ContentTypes:
-                if ContentType in ('music', 'audiobooks', 'podcasts', 'playlistsaudio'):
-                    path = "special://profile/library/music/"
-                else:
-                    path = "special://profile/library/video/"
-
-                NodePath = f"{path}emby_{ContentType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/"
-                utils.delFolder(NodePath)
-
-                if RemoveServer:
-                    NodePath = f"{path}emby_dynamic_{ContentType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/"
-                    utils.delFolder(NodePath)
-        else:
-            xbmc.log(f"EMBY.emby.views: Delete node, library not found: {LibraryId}", 1) # LOGINFO
-
-    # Create or update the video node file
-    def add_nodes(self, view, Dynamic):
-        if 'Icon' not in view or not view['Icon']:
-            if view['ContentType'] == 'tvshows':
-                view['Icon'] = 'DefaultTVShows.png'
-            elif view['ContentType'] in ('movies', 'homevideos'):
-                view['Icon'] = 'DefaultMovies.png'
-            elif view['ContentType'] == 'musicvideos':
-                view['Icon'] = 'DefaultMusicVideos.png'
-            elif view['ContentType'] in ('music', 'audiobooks', 'podcasts', 'playlistsaudio'):
-                view['Icon'] = 'DefaultMusicSongs.png'
-            else:
-                view['Icon'] = "special://home/addons/plugin.service.emby-next-gen/resources/icon.png"
-
-        if view['ContentType'] not in ("rootaudio", "rootvideo") and ((Dynamic and DynamicNodes.get(view['ContentType'], ())) or (not Dynamic and SyncNodes.get(view['ContentType'], ())) ):
-            if view['ContentType'] in ('music', 'audiobooks', 'podcasts', 'playlistsaudio'):
-                if Dynamic:
-                    folder = f"special://profile/library/music/emby_dynamic_{view['ContentType']}_{view['FilteredName']}/"
-                else:
-                    folder = f"special://profile/library/music/emby_{view['ContentType']}_{view['FilteredName']}/"
-            else:
-                if Dynamic:
-                    folder = f"special://profile/library/video/emby_dynamic_{view['ContentType']}_{view['FilteredName']}/"
-                else:
-                    folder = f"special://profile/library/video/emby_{view['ContentType']}_{view['FilteredName']}/"
-
-            utils.mkDir(folder)
-            FilePath = f"{folder}index.xml"
-
-            if not xbmcvfs.exists(FilePath):
-                Data = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>\n'
-                Data += '<node order="0">\n'
-
-                if Dynamic:
-                    Data += f'    <label>EMBY DYNAMIC: {utils.encode_XML(view["Name"])} ({view["ContentType"]})</label>\n'
-                else:
-                    Data += f'    <label>EMBY: {utils.encode_XML(view["Name"])} ({view["ContentType"]})</label>\n'
-
-                Data += f'    <icon>{utils.encode_XML(view["Icon"])}</icon>\n'
-                Data += '</node>'
-                utils.writeFile(FilePath, Data.encode("utf-8"))
-        elif view['ContentType'] == "rootvideo":
-            folder = "special://profile/library/video/"
-            utils.mkDir(folder)
-        elif view['ContentType'] == "rootaudio":
-            folder = "special://profile/library/music/"
-            utils.mkDir(folder)
-
-        ContentSupported = utils.ContentTypes.get(view['ContentType'], "service")
-
-        # Dynamic nodes
-        if Dynamic:
-            if DynamicNodes.get(view['ContentType'], ()):
-                if view['ContentType'] not in ("rootaudio", "rootvideo"):
-                    if ContentSupported == "audio":
-                        self.Nodes['NodesDynamic'].append({'title': view['Name'], 'path': f"library://music/emby_dynamic_{view['ContentType']}_{view['FilteredName']}/", 'icon': view['Icon']})
-                    elif ContentSupported == "image":
-                        self.Nodes['NodesDynamic'].append({'title': view['Name'], 'path': f"{view['ContentType']}_{view['FilteredName']}/", 'icon': view['Icon']}) # pictures
-                    else:
-                        self.Nodes['NodesDynamic'].append({'title': view['Name'], 'path': f"library://video/emby_dynamic_{view['ContentType']}_{view['FilteredName']}/", 'icon': view['Icon']})
-
-                    NodeIndex = 0
-
-                    for node in DynamicNodes[view['ContentType']]:
-                        NodeIndex += 1
-
-                        if not node:
-                            continue
-
-                        if node[0] == "Letter":
-                            FolderPath = f"{folder}letter_{node[3].lower()}/"
-                            add_IndexFile(FolderPath, node[1], node[2], 0)
-
-                            # Alphabetically
-                            for Letter in ("0-9", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"):
-                                FilePath = f"{FolderPath}{Letter}.xml"
-                                NodeIndex += 1
-
-                                if not xbmcvfs.exists(FilePath):
-                                    Data = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>\n'
-                                    Data += f'<node order="{NodeIndex}" type="folder">\n'
-                                    Data += f'    <label>{Letter}</label>\n'
-                                    Data += f'    <path>plugin://plugin.{ContentSupported}.emby-next-gen/?mode=browse&amp;id={Letter}&amp;parentid={view["LibraryId"]}&amp;libraryid={view["LibraryId"]}&amp;content={node[3]}&amp;server={view["ServerId"]}&amp;query=Letter&amp;contentsupported={ContentSupported}</path>\n'
-                                    Data += '</node>'
-                                    utils.writeFile(FilePath, Data.encode("utf-8"))
-
-                            continue
-
-                        # Pictures
-                        if view['ContentType'] == "homephotos":
-                            if f"{view['ContentType']}_{view['FilteredName']}/" not in self.PictureNodes:
-                                self.PictureNodes[f"{view['ContentType']}_{view['FilteredName']}/"] = ()
-
-                            self.PictureNodes[f"{view['ContentType']}_{view['FilteredName']}/"] += ((node[1], FilePath, f'plugin://plugin.image.emby-next-gen/?mode=browse&id={view["LibraryId"]}&parentid={view["LibraryId"]}&libraryid={view["LibraryId"]}&content={node[3]}&server={view["ServerId"]}&query={node[0]}&contentsupported={ContentSupported}', node[2]),)
-                            continue
-
-                        FilePath = f"{folder}{node[0].lower()}_{node[3].lower()}.xml"
-
-                        if not xbmcvfs.exists(FilePath):
-                            Data = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>\n'
-                            Data += f'<node order="{NodeIndex}" type="folder">\n'
-                            Data += f'    <label>{utils.encode_XML(node[1])}</label>\n'
-                            Data += f'    <icon>{utils.encode_XML(node[2])}</icon>\n'
-                            Data += f'    <path>plugin://plugin.{ContentSupported}.emby-next-gen/?mode=browse&amp;id={view["LibraryId"]}&amp;parentid={view["LibraryId"]}&amp;libraryid={view["LibraryId"]}&amp;content={node[3]}&amp;server={view["ServerId"]}&amp;query={node[0]}&amp;contentsupported={ContentSupported}</path>\n'
-
-                            if node[4]:
-                                Data += '    <group/>\n'
-
-                            Data += '</node>'
-                            utils.writeFile(FilePath, Data.encode("utf-8"))
-                else: # Dynamic root nodes
-                    for NodeIndex, node in enumerate(DynamicNodes[view['ContentType']], 1):
-                        LibraryId = 0
-                        IconPath = node[2]
-                        AddRootFolder = True
-
-                        if node[5]: # If root node is a library type (node[5]), check if library type exits on Emby server
-                            for LibraryId, LibraryData in list(self.ViewItems.items()):
-                                if (node[3] == "Playlist" and "playlists" == LibraryData[1]) or (node[3] == "TvChannel" and "livetv" == LibraryData[1]):
-                                    IconPath = utils.encode_XML(LibraryData[2])
-                                    break
-                            else:
-                                AddRootFolder = False
-
-                        if AddRootFolder:
-                            if view['ContentType'] == "rootvideo":
-                                if not self.ServerData["ServerId"]:
-                                    continue
-
-                                NodePath = f"library://video/emby_dynamic_{node[0].lower()}_{node[3].lower()}_{self.ServerData['ServerId']}.xml"
-                                FilePath = f"special://profile/library/video/emby_dynamic_{node[0].lower()}_{node[3].lower()}_{self.ServerData['ServerId']}.xml"
-                            elif view['ContentType'] == "rootaudio":
-                                if not self.ServerData["ServerId"]:
-                                    continue
-
-                                NodePath = f"library://music/emby_dynamic_{node[0].lower()}_{node[3].lower()}_{self.ServerData['ServerId']}.xml"
-                                FilePath = f"special://profile/library/music/emby_dynamic_{node[0].lower()}_{node[3].lower()}_{self.ServerData['ServerId']}.xml"
-                            else:
-                                NodePath = f"library://music/emby_dynamic_{node[0].lower()}_{node[3].lower()}.xml"
-                                FilePath = f"special://profile/library/music/emby_dynamic_{node[0].lower()}_{node[3].lower()}.xml"
-
-                            if not xbmcvfs.exists(FilePath) and self.ServerData["ServerId"]:
-                                Data = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>\n'
-                                Data += f'<node order="{NodeIndex}" type="folder">\n'
-                                Data += f'    <label>EMBY DYNAMIC: {utils.encode_XML(node[1])}</label>\n'
-                                Data += f'    <icon>{utils.encode_XML(IconPath)}</icon>\n'
-
-                                if node[0] == "Search":
-                                    Data += f'    <path>plugin://plugin.{ContentSupported}.emby-next-gen/?mode=search&amp;id={LibraryId}&amp;parentid={LibraryId}&amp;libraryid={LibraryId}&amp;content={node[3]}&amp;server={self.ServerData["ServerId"]}&amp;query={node[0]}&amp;contentsupported={ContentSupported}</path>\n'
-                                else:
-                                    Data += f'    <path>plugin://plugin.{ContentSupported}.emby-next-gen/?mode=browse&amp;id={LibraryId}&amp;parentid={LibraryId}&amp;libraryid={LibraryId}&amp;content={node[3]}&amp;server={self.ServerData["ServerId"]}&amp;query={node[0]}&amp;contentsupported={ContentSupported}</path>\n'
-
-                                if node[4]:
-                                    Data += '    <group/>\n'
-
-                                Data += '</node>'
-                                utils.writeFile(FilePath, Data.encode("utf-8"))
-
-                            self.Nodes['NodesDynamic'].append({'title': node[1], 'path': NodePath, 'icon': IconPath})
-        else: # Synced nodes
-            NodeIndex = 0
-
-            if view['ContentType'] in SyncNodes:
-                if view['ContentType'] not in ("rootaudio", "rootvideo"):
-                    if ContentSupported == "audio":
-                        self.Nodes['NodesSynced'].append({'title': view['Name'], 'path': f"library://music/emby_{view['ContentType']}_{view['FilteredName']}/", 'icon': view['Icon']})
-                    else:
-                        self.Nodes['NodesSynced'].append({'title': view['Name'], 'path': f"library://video/emby_{view['ContentType']}_{view['FilteredName']}/", 'icon': view['Icon']})
-
-                for node in SyncNodes[view['ContentType']]:
-                    # Node: [filename, label, icon, content, [[rule1, Filter, Operator], [rule1, Filter, Operator], ...], [direction, order], useLimit, group, Subfolder]
-                    NodeIndex += 1
-
-
-                    if view['ContentType'] in ("rootaudio", "rootvideo"):
-                        if not self.ServerData['ServerId']:
-                            continue
-
-                        if view['ContentType'] == "rootvideo":
-                            NodeData = {'title': node[1].replace("EMBY: ", ""), 'path': f"library://video/{node[0]}_{self.ServerData['ServerId']}.xml", 'icon': node[2]}
-                        else:
-                            NodeData = {'title': node[1].replace("EMBY: ", ""), 'path': f"library://music/{node[0]}_{self.ServerData['ServerId']}.xml", 'icon': node[2]}
-
-                        NodeAdd = True
-
-                        if node[0] in ('emby_collections_movies', 'emby_collections_tvshows', 'emby_collections_musicvideos'):
-                            NodeAdd = utils.BoxSetsToTags
-
-                        if NodeAdd:
-                            self.Nodes['NodesSynced'].append(NodeData)
-                        else:
-                            if NodeData in self.Nodes['NodesSynced']:
-                                del self.Nodes['NodesSynced'][self.Nodes['NodesSynced'].index(NodeData)]
-
-                    if len(node) == 9:
-                        FolderPath = f"{folder}{node[8][0]}/"
-
-                        if node[8][1] == "DBMUSICGENRE":
-                            utils.delFolder(FolderPath)
-                            utils.mkDir(FolderPath)
-                            musicdb = dbio.DBOpenRO("music", "node_songsbygenres")
-                            Genres = musicdb.get_genre(view['LibraryId'])
-                            dbio.DBCloseRO("music", "node_songsbygenres")
-
-                            for Genre in Genres:
-                                SubNode = list(node)
-                                SubNode[0] = utils.valid_Filename(Genre)
-                                SubNode[1] = utils.encode_XML(Genre)
-                                SubNode[4] = list(SubNode[4])
-                                SubNode[4][1] += (Genre,)
-                                self.set_synced_node(FolderPath, view, SubNode, NodeIndex, 10)
-                                NodeIndex += 1
-                        elif node[8][1] == "LETTER":
-                            utils.mkDir(FolderPath)
-
-                            for Letter in ("0-9", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"):
-                                SubNode = list(node)
-                                SubNode[0] = Letter
-                                SubNode[1] = Letter
-                                SubNode[4] = list(SubNode[4])
-
-                                if Letter == "0-9":
-                                    SubNode[4][1] += (("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "&amp;", "Ä", "Ö", "Ü", "!", "(", ")", "@", "#", "$", "^", "*", "-", "=", "+", "{", "}", "[", "]", "?", ":", ";", ",", ".", "~", "&lt;", "&gt;", "&quot;", "&apos;", '"'),)
-                                else:
-                                    SubNode[4][1] += (Letter,)
-
-                                self.set_synced_node(FolderPath, view, SubNode, NodeIndex, 1)
-                                NodeIndex += 1
-
-                        add_IndexFile(FolderPath, node[1], node[2], 0)
-                    else:
-                        self.set_synced_node(folder, view, node, NodeIndex, 1)
-
-    def set_synced_node(self, Folder, view, node, NodeIndex, LimitFactor):
-        if view.get('ContentType', "").startswith("root"):
-            FilePath = f"{Folder}{node[0]}_{self.ServerData['ServerId']}.xml"
-        else:
-            FilePath = f"{Folder}{node[0]}.xml"
-
-        if not xbmcvfs.exists(FilePath):
-            Label = node[1]
-
-            if Label == "LIBRARYNAME":
-                Label = view["Name"]
-
-            LabelXMLEncoded = utils.encode_XML(Label.strip())
-
-            if LabelXMLEncoded.isnumeric(): # Keep number as label, appand null -> Kodi translates plain numbers based on language files
-                LabelXMLEncoded += "&#000;"
-
-            utils.mkDir(Folder)
-
-            if not self.ServerData["ServerId"]:
-                return
-
-            Data = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>\n'
-
-            if node[4][0][0] == "PLUGIN":
-                ContentSupported = utils.ContentTypes.get(view['ContentType'], "service")
-                Data += f'<node order="{NodeIndex}" type="folder">\n'
-                Data += f'    <label>{LabelXMLEncoded}</label>\n'
-                Data += f'    <icon>{utils.encode_XML(node[2])}</icon>\n'
-                Data += f'    <path>plugin://plugin.{ContentSupported}.emby-next-gen/?mode={node[4][0][1]}&amp;mediatype={node[4][0][2]}&amp;libraryname={quote(view.get("Name", "unknown"))}&amp;server={self.ServerData["ServerId"]}&amp;contentsupported={ContentSupported}</path>\n'
-
-                if len(node) >= 8 and node[7]:
-                    Data += '    <group/>\n'
-            else:
-                Data += f'<node order="{NodeIndex}" type="filter">\n'
-                Data += f'    <label>{LabelXMLEncoded}</label>\n'
-                Data += f'    <icon>{utils.encode_XML(node[2])}</icon>\n'
-                Data += f'    <content>{node[3]}</content>\n'
-
-                if len(node[4]) > 1:
-                    Data += '    <match>all</match>\n'
-
-                for Rule in node[4]:
-                    if len(Rule) == 2:
-                        Data += f'    <rule field="{Rule[0]}" operator="{Rule[1]}"/>\n'
-                    else:
-                        if isinstance(Rule[2], tuple):
-                            Data += f'    <rule field="{Rule[0]}" operator="{Rule[1]}">\n'
-
-                            for Value in Rule[2]:
-                                Data += f'        <value>{Value}</value>\n'
-
-                            Data += '    </rule>\n'
-                        else:
-                            Tag = Rule[2]
-
-                            if Tag == "LIBRARYTAG":
-                                Tag = utils.encode_XML(view["Tag"])
-
-                            Data += f'    <rule field="{Rule[0]}" operator="{Rule[1]}">{Tag}</rule>\n'
-
-                if node[5]:
-                    if len(node[5]) > 1:
-                        Data += f'    <order direction="{node[5][0]}">{node[5][1]}</order>\n'
-                    else:
-                        Data += f'    <order>{node[5][0]}</order>\n'
-
-                if node[6]:
-                    Data += f'    <limit>{utils.maxnodeitems * LimitFactor}</limit>\n'
-
-                if node[7]:
-                    Data += f'    <group>{node[7]}</group>\n'
-
-            Data += '</node>'
-            utils.writeFile(FilePath, Data.encode("utf-8"))
-
-    def add_synced_subnode(self, ItemId, LibraryId, NodeName, Content, ImageTags, KodiLibrary, EmbyParentContent):
-        if LibraryId in self.ViewItems:
-            IconFile = utils.download_Icon(ItemId, ImageTags, self.ServerData["ServerId"], NodeName, False) # Download image
-            LibraryType = self.ViewItems[LibraryId][1]
-
-            # Generate xml nodes
-            if KodiLibrary == "music":
-                if self.ViewItems[LibraryId][1] == "playlists":
-                    return
-
-                if Content == "MusicGenre":
-                    View = {'Name': NodeName, 'Tag': f"EmbyLibraryId-{LibraryId}"}
-                    Folder = f"special://profile/library/music/emby_{LibraryType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/"
-                    utils.mkDir(Folder)
-                    Node = (f"{utils.valid_Filename(NodeName)}-{ItemId}", NodeName, IconFile, "artists", (("disambiguation", "is", "LIBRARYTAG"), ("genre", "is", utils.encode_XML(NodeName))), ("ascending", "title"), False, False)
-                    Folder = f"{Folder}genrenodes/"
-                    add_IndexFile(Folder, utils.Translate(33730), 'DefaultGenre.png', 9999)
-                    self.set_synced_node(Folder, View, Node, get_NodexIndex_by_Alphabet(NodeName), 0)
-            else:
-                if LibraryType == "mixed":
-                    if EmbyParentContent in ("Video", "Movie", "MusicVideo"):
-                        LibraryType = "movies"
-                    elif EmbyParentContent == "Series":
-                        LibraryType = "tvshows"
-                    else:
-                        return
-
-                if Content == "MusicGenre": # MusicGenres must be unified by trailing space as they are added in Kodi's music AND video library
-                    NodeName = f"{NodeName} "
-
-                if Content in ("Genre", "MusicGenre"):
-                    View = {'Name': NodeName, 'Tag': self.ViewItems[LibraryId][0]}
-                    Folder = f"special://profile/library/video/emby_{LibraryType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/"
-                    utils.mkDir(Folder)
-                    Node = (f"{utils.valid_Filename(NodeName)}-{ItemId}", NodeName, IconFile, LibraryType, (("tag", "is", "LIBRARYTAG"), ("genre", "is", utils.encode_XML(NodeName))), ("ascending", "title"), False, False)
-                    Folder = f"{Folder}genrenodes/"
-                    add_IndexFile(Folder, utils.Translate(33730), 'DefaultGenre.png', 9999)
-                    self.set_synced_node(Folder, View, Node, get_NodexIndex_by_Alphabet(NodeName), 0)
-                elif Content == "Studio":
-                    View = {'Name': NodeName, 'Tag': self.ViewItems[LibraryId][0]}
-                    Folder = f"special://profile/library/video/emby_{LibraryType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/"
-                    utils.mkDir(Folder)
-                    Node = (f"{utils.valid_Filename(NodeName)}-{ItemId}", NodeName, IconFile, LibraryType, (("tag", "is", "LIBRARYTAG"), ("studio", "is", utils.encode_XML(NodeName))), ("ascending", "title"), False, False)
-                    Folder = f"{Folder}studionodes/"
-                    add_IndexFile(Folder, utils.Translate(33731), 'DefaultStudios.png', 9999)
-                    self.set_synced_node(Folder, View, Node, get_NodexIndex_by_Alphabet(NodeName), 0)
-                elif Content == "Tag":
-                    View = {'Name': NodeName, 'Tag': self.ViewItems[LibraryId][0]}
-                    Folder = f"special://profile/library/video/emby_{LibraryType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/"
-                    utils.mkDir(Folder)
-                    Node = (f"{utils.valid_Filename(NodeName)}-{ItemId}", NodeName, IconFile, LibraryType, (("tag", "is", "LIBRARYTAG"), ("tag", "is", utils.encode_XML(NodeName))), ("ascending", "title"), False, False)
-                    Folder = f"{Folder}tagnodes/"
-                    add_IndexFile(Folder, utils.Translate(33732), 'DefaultTags.png', 9999)
-                    self.set_synced_node(Folder, View, Node, get_NodexIndex_by_Alphabet(NodeName), 0)
-
-    def remove_synced_subnode(self, ItemId, LibraryId, Content, ContentName):
-        if LibraryId in self.ViewItems:
-            LibraryType = self.ViewItems[LibraryId][1]
-
-            if LibraryType == "mixed":
-                LibraryTypes = ("movies", "tvshows", "music")
-            else:
-                LibraryTypes = (LibraryType,)
-
-            for LibraryType in LibraryTypes:
-                if Content == "Genre":
-                    utils.delFile(f"special://profile/library/video/emby_{LibraryType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/genrenodes/{utils.valid_Filename(ContentName)}-{ItemId}.xml")
-                elif Content == "Studio":
-                    utils.delFile(f"special://profile/library/video/emby_{LibraryType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/studionodes/{utils.valid_Filename(ContentName)}-{ItemId}.xml")
-                elif Content == "Tag":
-                    utils.delFile(f"special://profile/library/video/emby_{LibraryType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/tagnodes/{utils.valid_Filename(ContentName)}-{ItemId}.xml")
-                elif Content == "MusicGenrevideo":
-                    utils.delFile(f"special://profile/library/video/emby_{LibraryType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/genrenodes/{utils.valid_Filename(ContentName)}-{ItemId}.xml")
-                elif Content == "MusicGenremusic":
-                    utils.delFile(f"special://profile/library/music/emby_{LibraryType}_{utils.valid_Filename(self.ViewItems[LibraryId][0])}/genrenodes/{utils.valid_Filename(ContentName)}-{ItemId}.xml")
-                else:
-                    return
-
-def get_NodexIndex_by_Alphabet(Name):
+def genre_node_order(Name):
     if Name == "--NO INFO--":
         return 0
+    Name = Name.lower().replace("the ", "").replace("der ", "").replace("die ", "").replace("das ", "")
+    Alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    return int("".join(f"{Alphabet.find(Letter) + 2:02d}" for Letter in Name[:4].ljust(4)))
 
-    Name = Name.lower()
-    Name = Name.replace("the ", "")
-    Name = Name.replace("der ", "")
-    Name = Name.replace("die ", "")
-    Name = Name.replace("das ", "")
-    Index = ""
 
-    for Letter in Name[:4]:
-        if Letter in NodexIndexAlphabet:
-            Index += NodexIndexAlphabet[Letter]
-        else:
-            Index += "01"
+def write_index(Folder, Label, Icon, Order=0):
+    XML = XML_HEADER + f'<node order="{Order}">\n'
+    XML += f"    <label>{utils.encode_XML(Label)}</label>\n    <icon>{utils.encode_XML(Icon)}</icon>\n</node>"
+    write_node(Folder, "index.xml", XML)
 
-    NameLen = len(Name)
 
-    if NameLen < 4:
-        Index += (4 - NameLen) * "01"
-
-    return int(Index)
-
-def add_IndexFile(Folder, Label, Icon, Index):
-    FilePath = f"{Folder}index.xml"
-
-    if not xbmcvfs.exists(FilePath):
+def write_node(Folder, Filename, XML):
+    Path = f"{Folder}{Filename}"
+    if not xbmcvfs.exists(Path) or utils.readFileString(Path) != XML:
         utils.mkDir(Folder)
-        Data = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>\n'
-        Data += f'<node order="{Index}">\n'
-        Data += f'    <label>{utils.encode_XML(Label)}</label>\n'
-        Data += f'    <icon>{utils.encode_XML(Icon)}</icon>\n'
-        Data += '</node>'
-        utils.writeFile(FilePath, Data.encode("utf-8"))
-
-# Create or update the xsp file
-def add_xpsplaylist(view):
-    if not utils.xspplaylists:
-        return
-
-    if view['ContentType'] in ('music', 'audiobooks', 'podcasts', 'playlistsaudio'):
-        path = 'special://profile/playlists/music/'
-    else:
-        path = 'special://profile/playlists/video/'
-
-    utils.mkDir(path)
-    FilePath = f"{path}emby_{view['ContentType']}_{view['FilteredName']}.xsp"
-
-    if not xbmcvfs.exists(FilePath):
-        Data = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>\n'
-        Data += f'<smartplaylist type="{view["ContentType"]}">\n'
-        Data += f'    <name>{view["Name"]}</name>\n'
-        Data += '    <match>all</match>\n'
-        Data += f'    <rule field="tag" operator="is">{view["Tag"]}</rule>\n'
-        Data += '</smartplaylist>'
-        utils.writeFile(FilePath, Data.encode("utf-8"))
+        utils.writeFile(Path, XML.encode("utf-8"))

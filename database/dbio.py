@@ -3,7 +3,7 @@ import threading
 import xbmcvfs
 import xbmc
 from helper import utils
-from . import emby_db, video_db, music_db, texture_db, addon_db, common_db
+from . import emby_db, video_db, music_db, texture_db
 
 DBConnectionsRW = {}
 DBConnectionsRO = {}
@@ -25,19 +25,14 @@ def DBVacuum():
             Index += 1
             continue
 
-        if utils.DebugLog: xbmc.log(f"EMBY.database.dbio (DEBUG): ---> DBVacuum: {DBID}", 1) # LOGDEBUG
-
         if DBID not in DBConnectionsRW:
             DBConnectionsRW[DBID] = [None, None, threading.Condition(threading.Lock()), False]
-
-        if utils.DebugLog: xbmc.log("EMBY.database.dbio (DEBUG): CONDITION: --->[ DBConnectionsRW ]", 1) # LOGDEBUG
 
         with utils.SafeLock(DBConnectionsRW[DBID][2]):
             while DBConnectionsRW[DBID][3]:
                 DBConnectionsRW[DBID][2].wait(timeout=0.1)
                 xbmc.sleep(1)
 
-            if utils.DebugLog: xbmc.log("EMBY.database.dbio (DEBUG): CONDITION: ---<[ DBConnectionsRW ]", 1) # LOGDEBUG
             DBConnectionsRW[DBID][3] = True
 
             while True:
@@ -58,7 +53,7 @@ def DBVacuum():
             try:
                 DBConnectionsRW[DBID][0].execute("PRAGMA journal_mode=OFF")
             except:
-                xbmc.log(f"EMBY.database.dbio: Journalmode cannot be changed to OFF ---> DBVacuum: {DBID}", 1) # LOGINFO
+                xbmc.log(f"EMBY.database.dbio: Journalmode cannot be changed to OFF ---> DBVacuum: {DBID}", xbmc.LOGWARNING)
 
             DBConnectionsRW[DBID][0].execute("PRAGMA page_size=65536")
             DBConnectionsRW[DBID][0].execute("VACUUM")
@@ -66,22 +61,20 @@ def DBVacuum():
             try:
                 DBConnectionsRW[DBID][0].execute("PRAGMA journal_mode=WAL")
             except:
-                xbmc.log(f"EMBY.database.dbio: Journalmode cannot be changed to WAL ---> DBVacuum: {DBID}", 1) # LOGINFO
+                xbmc.log(f"EMBY.database.dbio: Journalmode cannot be changed to WAL ---> DBVacuum: {DBID}", xbmc.LOGWARNING)
 
             DBConnectionsRW[DBID][0].execute("ANALYZE")
             DBConnectionsRW[DBID][0].close()
             DBConnectionsRW[DBID][0] = None
             DBConnectionsRW[DBID][3] = False
             DBConnectionsRW[DBID][2].notify_all()
-            if utils.DebugLog: xbmc.log(f"EMBY.database.dbio (DEBUG): ---< DBVacuum: {DBID}", 1) # LOGDEBUG
             Index += 1
 
     utils.close_ProgressBar("DBVacuum")
 
-def DBOpenRO(DBID, TaskId):
+def DBOpenRO(DBID, TaskId, Timeout=999999):
     DBIDThreadID = f"{DBID}{TaskId}{threading.get_ident()}"
-    if utils.DebugLog: xbmc.log(f"EMBY.database.dbio (DEBUG): ---> DBRO: {DBIDThreadID}", 1) # LOGDEBUG
-    DBConnectionsRO[DBIDThreadID] = [sqlite3.connect(f"file:{utils.DatabaseFiles[DBID]}?mode=ro", uri=True, timeout=999999, check_same_thread=False), None]
+    DBConnectionsRO[DBIDThreadID] = [sqlite3.connect(f"file:{utils.DatabaseFiles[DBID]}?mode=ro", uri=True, timeout=Timeout, check_same_thread=False), None]
     DBConnectionsRO[DBIDThreadID][1] = DBConnectionsRO[DBIDThreadID][0].cursor()
     DBConnectionsRO[DBIDThreadID][0].execute("PRAGMA temp_store=MEMORY")
 
@@ -94,11 +87,6 @@ def DBOpenRO(DBID, TaskId):
     if DBID == 'texture':
         return texture_db.TextureDatabase(DBConnectionsRO[DBIDThreadID][1])
 
-    if DBID == 'addon':
-        return addon_db.AddonDatabase(DBConnectionsRO[DBIDThreadID][1])
-
-    if DBID in ('epg', 'tv'):
-        return common_db.CommonDatabase(DBConnectionsRO[DBIDThreadID][1])
 
     return emby_db.EmbyDatabase(DBConnectionsRO[DBIDThreadID][1])
 
@@ -109,9 +97,8 @@ def DBCloseRO(DBID, TaskId):
         DBConnectionsRO[DBIDThreadID][1].close()
         DBConnectionsRO[DBIDThreadID][0].close()
         DBConnectionsRO[DBIDThreadID] = [None, None]
-        if utils.DebugLog: xbmc.log(f"EMBY.database.dbio (DEBUG): ---< DBRO: {DBIDThreadID}", 1) # LOGDEBUG
     else:
-        xbmc.log(f"EMBY.database.dbio: DBIDThreadID not found {DBIDThreadID}", 3) # LOGERROR
+        xbmc.log(f"EMBY.database.dbio: DBIDThreadID not found {DBIDThreadID}", xbmc.LOGERROR)
 
 def DBOpenRW(Databases, TaskId, SQLs):
     DBIDs = Databases.split(",")
@@ -121,15 +108,11 @@ def DBOpenRW(Databases, TaskId, SQLs):
             if DBID not in DBConnectionsRW:
                 DBConnectionsRW[DBID] = [None, None, threading.Condition(threading.Lock()), False]
 
-            if utils.DebugLog: xbmc.log(f"EMBY.database.dbio (DEBUG): ---> DBRW: {DBID}/{TaskId}", 1) # LOGDEBUG
-            if utils.DebugLog: xbmc.log("EMBY.database.dbio (DEBUG): CONDITION: --->[ DBConnectionsRW ]", 1) # LOGDEBUG
-
             with utils.SafeLock(DBConnectionsRW[DBID][2]):
                 while DBConnectionsRW[DBID][3]:
                     DBConnectionsRW[DBID][2].wait(timeout=0.1)
                     xbmc.sleep(1)
 
-                if utils.DebugLog: xbmc.log("EMBY.database.dbio (DEBUG): CONDITION: ---<[ DBConnectionsRW ]", 1) # LOGDEBUG
                 DBConnectionsRW[DBID][3] = True
 
                 while True:
@@ -156,10 +139,6 @@ def DBOpenRW(Databases, TaskId, SQLs):
                     SQLs[DBID] = music_db.MusicDatabase(DBConnectionsRW[DBID][1])
                 elif DBID == 'texture':
                     SQLs[DBID] = texture_db.TextureDatabase(DBConnectionsRW[DBID][1])
-                elif DBID == 'addon':
-                    SQLs[DBID] = addon_db.AddonDatabase(DBConnectionsRW[DBID][1])
-                elif DBID in ('tv', 'epg'):
-                    SQLs[DBID] = common_db.CommonDatabase(DBConnectionsRW[DBID][1])
                 else:
                     SQLs["emby"] = emby_db.EmbyDatabase(DBConnectionsRW[DBID][1])
 
@@ -173,7 +152,7 @@ def DBCloseRW(Databases, TaskId, SQLs):
                 DBConnectionsRW[DBID][1].close() # curser close
                 DBConnectionsRW[DBID][0].close() # db close
 
-                if DBID in ('video', 'music', 'texture', 'epg', 'tv', 'addon'):
+                if DBID in ('video', 'music', 'texture'):
                     SQLs[DBID] = None
                 else:
                     SQLs["emby"] = None
@@ -182,5 +161,3 @@ def DBCloseRW(Databases, TaskId, SQLs):
                 DBConnectionsRW[DBID][1] = None
                 DBConnectionsRW[DBID][3] = False
                 DBConnectionsRW[DBID][2].notify_all()
-
-            if utils.DebugLog: xbmc.log(f"EMBY.database.dbio (DEBUG): ---< DBRW: {DBID} / {TaskId} rows updated on db close", 1) # LOGDEBUG
