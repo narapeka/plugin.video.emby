@@ -95,21 +95,20 @@ class Videos:
         if not common.verify_KodiIds(Item, IncrementalSync, False):
             return False
 
-        common.set_Favorite(Item)
-        Update = False
-        common.set_playstate(Item)
-        common.set_RunTimeTicks(Item)
-
         if not self.SQLs["video"]: # skip LibraryId 999999998 / shared
             return False
 
-        self.SQLs["emby"].update_favourite(Item['IsFavorite'], Item['Id'], "Video")
+        if common.set_Favorite(Item):
+            self.SQLs["emby"].update_favourite(Item['IsFavorite'], Item['Id'], "Video")
+            if UpdateKodiFavorite:
+                self.set_favorite(Item['IsFavorite'], Item)
 
-        if UpdateKodiFavorite:
-            self.set_favorite(Item['IsFavorite'], Item)
-
+        common.set_playstate(Item)
+        common.set_RunTimeTicks(Item)
+        Playstate = common.get_playstate_updates(Item)
+        Update = False
         for KodiFileId in self.SQLs["video"].get_KodiFileId_by_videoversion(Item['KodiItemId'], "movie"):
-            if self.SQLs["video"].update_bookmark_playstate(KodiFileId[0], Item['KodiPlayCount'], Item['KodiLastPlayedDate'], Item['KodiPlaybackPositionTicks'], Item['KodiRunTimeTicks']):
+            if self.SQLs["video"].update_bookmark_playstate(KodiFileId[0], Runtime=Item['KodiRunTimeTicks'], **Playstate):
                 Update = True
 
         return Update

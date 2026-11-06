@@ -204,7 +204,7 @@ def update_userdata_Emby(EmbyId, ServerId, PlaybackPositionTicks, PlayCount, IsF
         KodiLastPlayedDate = None
         KodiPlaybackPositionTicks = None
 
-        if not PlayCount or (Played is not None and not Played):
+        if Played is False:
             PlayCount = 0
 
         if LastPlayedDate is not None:

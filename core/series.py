@@ -93,7 +93,8 @@ class Series:
         if not common.verify_KodiIds(Item, IncrementalSync, False):
             return False
 
-        common.set_Favorite(Item)
+        if not common.set_Favorite(Item):
+            return False
 
         if UpdateKodiFavorite:
             self.set_favorite(Item['IsFavorite'], Item)

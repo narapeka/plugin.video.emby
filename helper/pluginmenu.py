@@ -145,27 +145,42 @@ def manage_servers(ServerConnect):  # threaded by caller
         Selection = utils.Dialog.select(utils.Translate(33431), ServerItems)
 
         if Selection > -1:
-            utils.EmbyServers[ServerIds[Selection]].ServerData['ServerRemoved'] = True
-            utils.close_dialog(10146) # addoninformation
-            utils.Dialog.notification(heading=utils.addon_name, message=f"{utils.Translate(33448)}: {utils.EmbyServers[ServerIds[Selection]].ServerData['ServerName']}", icon=utils.icon, time=utils.displayMessage, sound=False)
-            SQLs = {}
-            dbio.DBOpenRW(ServerIds[Selection], "remove_emby_server", SQLs)
+            ServerId = ServerIds[Selection]
+            Server = utils.EmbyServers[ServerId]
+            if not Server.library.SettingsLoaded:
+                xbmc.log("EMBY.helper.pluginmenu: Cannot remove server before database initialization succeeds", xbmc.LOGERROR)
+                utils.Dialog.ok(heading=utils.addon_name, message=utils.Translate(33903))
+                return
 
-            for LibrarySyncedId in utils.EmbyServers[ServerIds[Selection]].library.LibrarySyncedNames:
-                SQLs["emby"].add_remove_library_items(LibrarySyncedId)
-                SQLs["emby"].add_RemoveItem("library", LibrarySyncedId)
+            Server.ServerData['ServerRemoved'] = True
+            try:
+                utils.close_dialog(10146) # addoninformation
+                utils.Dialog.notification(heading=utils.addon_name, message=f"{utils.Translate(33448)}: {Server.ServerData['ServerName']}", icon=utils.icon, time=utils.displayMessage, sound=False)
+                SQLs = {}
+                Queued = False
+                try:
+                    dbio.DBOpenRW(ServerId, "remove_emby_server", SQLs)
+                    for LibrarySyncedId in Server.library.LibrarySyncedNames:
+                        SQLs["emby"].add_remove_library_items(LibrarySyncedId)
+                        SQLs["emby"].add_RemoveItem("library", LibrarySyncedId)
+                    SQLs["emby"].add_RemoveItem("library", "999999999")
+                    SQLs["emby"].add_remove_library_items_person()
+                    Queued = True
+                finally:
+                    if SQLs.get("emby"):
+                        dbio.DBCloseRW(ServerId, "remove_emby_server", SQLs, Commit=Queued)
 
-            SQLs["emby"].add_RemoveItem("library", "999999999")
-            SQLs["emby"].add_remove_library_items_person()
-            dbio.DBCloseRW(ServerIds[Selection], "remove_emby_server", SQLs)
-            utils.update_SyncPause(utils.EmbyServers[ServerIds[Selection]].library.ServerDatabaseInitId, False)
-            utils.EmbyServers[ServerIds[Selection]].library.RunJobs(False, False)
-
-            for LibraryId in utils.EmbyServers[ServerIds[Selection]].Views.ViewItems:
-                utils.EmbyServers[ServerIds[Selection]].Views.delete_node_by_id(LibraryId)
-
-            utils.EmbyServers[ServerIds[Selection]].Views.delete_root_nodes()
-            utils.EmbyServers[ServerIds[Selection]].ServerDisconnect()
+                if Server.library.RunJobs(False, False) is False:
+                    raise RuntimeError("Server cleanup remains pending")
+                for LibraryId in Server.Views.ViewItems:
+                    Server.Views.delete_node_by_id(LibraryId)
+                Server.Views.delete_root_nodes()
+                Server.ServerDisconnect()
+            except Exception as Error:
+                Server.ServerData['ServerRemoved'] = False
+                xbmc.log(f"EMBY.helper.pluginmenu: Server removal failed: {type(Error).__name__}", xbmc.LOGERROR)
+                if not utils.SystemShutdown:
+                    utils.Dialog.ok(heading=utils.addon_name, message=utils.Translate(33903))
     elif Selection == 2:
         _, ServerIds, ServerItems = get_EmbyServerList()
         Selection = utils.Dialog.select(utils.Translate(33431), ServerItems)
@@ -457,17 +472,25 @@ def add_synced_playlist_videos(ItemsListings, LinkedIds, EmbyDB, VideoDB):
         ("Episode", VideoDB.get_episode_metadata_for_listitem),
         ("MusicVideo", VideoDB.get_musicvideos_metadata_for_listitem),
     )
-    for (MediaType, GetMetadata), Group in zip(VideoTypes, (LinkedIds or "").split(";")[1:]):
+    Groups = (LinkedIds or "").split(";")
+    Members = {}
+    LegacyOrder = []
+    for (MediaType, GetMetadata), Group in zip(VideoTypes, Groups[1:5]):
         for EmbyId in filter(None, Group.split(",")):
-            KodiId = EmbyDB.get_KodiId_by_EmbyId_EmbyType(EmbyId, MediaType)
-            if not KodiId:
-                continue
-            if MediaType == "MusicVideo":
-                KodiId = KodiId.split(",")[0]
-            KodiItem = GetMetadata(KodiId, "")
-            if KodiItem:
-                listitem.set_ListItem_from_Kodi_database(KodiItem, "")
-                add_ItemsListings(ItemsListings, KodiItem, "")
+            Members[EmbyId] = (MediaType, GetMetadata)
+            LegacyOrder.append(EmbyId)
+    Order = filter(None, Groups[5].split(",")) if len(Groups) > 5 else LegacyOrder
+    for EmbyId in Order:
+        MediaType, GetMetadata = Members[EmbyId]
+        KodiId = EmbyDB.get_KodiId_by_EmbyId_EmbyType(EmbyId, MediaType)
+        if not KodiId:
+            continue
+        if MediaType == "MusicVideo":
+            KodiId = KodiId.split(",")[0]
+        KodiItem = GetMetadata(KodiId, "")
+        if KodiItem:
+            listitem.set_ListItem_from_Kodi_database(KodiItem, "")
+            add_ItemsListings(ItemsListings, KodiItem, "")
 
 def get_recentlyadded_musicvideosalbums(Handle, LibraryName):
     Handle = int(Handle)
@@ -589,7 +612,7 @@ def reset_all():
         if xbmcvfs.exists(DatabasePath) and not xbmcvfs.delete(DatabasePath):
             raise OSError(f"Cannot remove {DatabasePath}")
 
-    delete_thumbnail_cache()
+    delete_thumbnail_cache(AllowDuringShutdown=True)
     utils.delFolder(utils.FolderAddonUserdata)
     if xbmcvfs.exists(utils.FolderAddonUserdata):
         raise OSError("Cannot remove the Emby add-on data directory")
@@ -602,7 +625,7 @@ def reset_all():
 def clear_media_databases():
     SQLs = {}
     for DbId in ("video", "music"):
-        dbio.DBOpenRW(DbId, "factoryreset", SQLs)
+        dbio.DBOpenRW(DbId, "factoryreset", SQLs, AllowDuringShutdown=True)
         try:
             Database = SQLs[DbId].common_db
             with Database.cursor.connection:
@@ -626,7 +649,7 @@ def clear_image_cache():
             utils.Dialog.notification(heading=utils.addon_name, message=utils.Translate(33904), icon=utils.icon, time=utils.displayMessage, sound=False)
 
 
-def delete_thumbnail_cache():
+def delete_thumbnail_cache(*, AllowDuringShutdown=False):
     Directory = Path(xbmcvfs.translatePath("special://thumbnails/"))
     if not Directory.is_absolute() or Directory.is_symlink() or Directory.resolve().name.casefold() != "thumbnails":
         raise ValueError(f"Unexpected thumbnail directory: {Directory}")
@@ -638,7 +661,7 @@ def delete_thumbnail_cache():
         with utils.SafeLock(utils.ArtworkDeleteLock):
             SQLs = {}
             if utils.DatabaseFiles["texture"] and xbmcvfs.exists(utils.DatabaseFiles["texture"]):
-                dbio.DBOpenRW("texture", "ClearImageCache", SQLs)
+                dbio.DBOpenRW("texture", "ClearImageCache", SQLs, AllowDuringShutdown=AllowDuringShutdown)
 
             try:
                 if Directory.is_dir():

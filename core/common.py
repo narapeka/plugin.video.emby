@@ -2,6 +2,7 @@ import base64
 from urllib.parse import unquote, urlsplit
 import xbmc
 from helper import utils, copy, versions
+RESUME_REWIND_SECONDS = 10
 EmbyTypeMappingShort = {"Movie": "m", "Episode": "e", "MusicVideo": "M", "Audio": "a", "Video": "v"}
 ImageTagsMappings = {
     "Series": (('Primary', 'poster'), ('Disc', 'discart'), ('Logo', 'clearlogo'), ('Backdrop', 'fanart'), ('Primary', 'thumb'), ('Backdrop', 'landscape'), ('Primary', 'landscape')),
@@ -441,13 +442,15 @@ def set_streams(Item):
         Item['MediaSources'] = Defaults + Others if Defaults else Others[-1:] + Others[:-1]
 
     # Streams
+    GroupedMovie = Item.get('Type') == "Movie" and len(Item['MediaSources']) > 1
     for MediaSource in Item['MediaSources']:
         KodiStreamVideoIndex = 0
         KodiStreamAudioIndex = 0
         KodiStreamSubtitleIndex = 0
         MediaSource['Path'] = MediaSource.get('Path', "")
         MediaSource['Size'] = MediaSource.get('Size', "")
-        RunTimeTicks = MediaSource.get('RunTimeTicks', Item.get('RunTimeTicks', None))
+        DefaultRuntime = None if GroupedMovie and MediaSource['Type'] != "Default" else Item.get('RunTimeTicks')
+        RunTimeTicks = MediaSource.get('RunTimeTicks', DefaultRuntime)
 
         if RunTimeTicks:
             MediaSource['KodiRunTimeTicks'] = round(float(RunTimeTicks / 10000000.0), 6)
@@ -578,32 +581,16 @@ def set_mpaa(Item):
 
 
 def set_PlayCount(UserData):
-    PlayCount = UserData.get('PlayCount', None)
-
-    if 'Played' in UserData:
-        if not UserData['Played']:
-            KodiPlayCount = None
-        else:
-            if PlayCount:
-                KodiPlayCount = PlayCount
-            else:
-                KodiPlayCount = 1
-    else:
-        KodiPlayCount = PlayCount
-
-        if not KodiPlayCount: # could be "0" then substitute with "None", Kodi does not accept 0
-            KodiPlayCount = None
-
-    return KodiPlayCount
+    Played = UserData.get('Played')
+    if Played is not None and not Played:
+        return None
+    return UserData.get('PlayCount') or (1 if Played else None)
 
 def set_playstate(Item):
     if 'KodiLastPlayedDate' in Item and 'KodiPlaybackPositionTicks' in Item and 'KodiPlayCount' in Item:
         return
 
-    if 'UserData' in Item:
-        UserData = Item['UserData']
-    else:
-        UserData = Item
+    UserData = Item.get('UserData') or Item
 
     Item['KodiPlayCount'] = set_PlayCount(UserData)
 
@@ -613,12 +600,26 @@ def set_playstate(Item):
         Item['KodiLastPlayedDate'] = None
 
     if 'PlaybackPositionTicks' in UserData and UserData['PlaybackPositionTicks']:
-        Item['KodiPlaybackPositionTicks'] = float(UserData['PlaybackPositionTicks']) / 10000000.0 - float(utils.resumeJumpBack)
+        Item['KodiPlaybackPositionTicks'] = float(UserData['PlaybackPositionTicks']) / 10000000.0 - RESUME_REWIND_SECONDS
 
         if Item['KodiPlaybackPositionTicks'] <= 0:
             Item['KodiPlaybackPositionTicks'] = None
     else:
         Item['KodiPlaybackPositionTicks'] = None
+
+def get_playstate_updates(Item, IncludeProgress=True):
+    UserData = Item.get('UserData') or Item
+    Played = UserData.get('Played')
+    Updates = {}
+    if UserData.get('PlayCount') is not None or (Played is not None and not Played):
+        Updates['playcount'] = set_PlayCount(UserData)
+    elif Played:
+        Updates['MarkPlayed'] = True
+    if UserData.get('LastPlayedDate') is not None:
+        Updates['date_played'] = Item['KodiLastPlayedDate']
+    if IncludeProgress and UserData.get('PlaybackPositionTicks') is not None:
+        Updates['Progress'] = Item['KodiPlaybackPositionTicks']
+    return Updates
 
 def set_DateCreated(Item):
     if 'DateCreated' in Item:
@@ -1022,14 +1023,13 @@ def verify_content(Item, MediaType):
 
 
 def set_Favorite(Item):
-    if "UserData" in Item and "IsFavorite" in Item['UserData'] and Item['UserData']['IsFavorite']:
-        Item['IsFavorite'] = int(Item['UserData']['IsFavorite'])
-    elif 'IsFavorite' in Item and Item['IsFavorite']:
-        Item['IsFavorite'] = int(Item['IsFavorite'])
-    elif "EmbyFavourite" in Item and Item['EmbyFavourite']:
-        Item['IsFavorite'] = 1
-    else:
-        Item['IsFavorite'] = 0
+    Favorite = (Item.get('UserData') or {}).get('IsFavorite')
+    if Favorite is None:
+        Favorite = Item.get('IsFavorite')
+    if Favorite is None:
+        return False
+    Item['IsFavorite'] = int(Favorite)
+    return True
 
 def set_PresentationUniqueKey(Item):
     if 'PresentationUniqueKey' in Item and Item['PresentationUniqueKey']:
@@ -1474,7 +1474,7 @@ def add_multiversion(Item, EmbyType, Library, SQLs, EmbyMusicArtistIds, EmbyMusi
             SQLs["video"].add_streams(ItemReferenced['KodiFileId'], MediaSource['KodiStreams']['Video'], MediaSource['KodiStreams']['Audio'], MediaSource['KodiStreams']['Subtitle'], MediaSource['KodiRunTimeTicks'])
             SQLs["video"].common_db.add_artwork(ItemReferenced['KodiArtwork'], ItemReferenced['KodiFileId'], "videoversion")
             SQLs["video"].add_movie_version(Item['KodiItemId'], ItemReferenced['KodiFileId'], ItemReferenced['KodiPathId'], ItemReferenced['KodiFilename'], ItemReferenced['KodiDateCreated'], ItemReferenced['KodiStackedFilename'], MediaSource['Name'], "movie", "regular")
-            SQLs['emby'].add_reference_movie(ItemReferenced['Id'], Item['LibraryId'], Item['KodiItemId'], ItemReferenced['KodiFileId'], ItemReferenced['PresentationUniqueKey'], MediaSource['Path'], ItemReferenced['KodiPathId'])
+            SQLs['emby'].add_reference_movie(ItemReferenced['Id'], Item['LibraryId'], Item['KodiItemId'], ItemReferenced['KodiFileId'], ItemReferenced['PresentationUniqueKey'], MediaSource['Path'], ItemReferenced['KodiPathId'], Item['TmdbId'])
 
             if MediaSource['Id'] == PreferredSourceId:
                 MovieDefault = (ItemReferenced['KodiFileId'], ItemReferenced['KodiPathId'], ItemReferenced['KodiPath'])
@@ -1490,7 +1490,7 @@ def load_Item(ItemId, EmbyType, Library, WorkerName, LibraryId, SQLs):
         Item = CachedItemsMissing[ItemId]
         Item['LibraryId'] = LibraryId
     else:
-        Item = Library.API.get_Item(ItemId, (EmbyType,), False, False, False) # Do not load userdata, as it's slow
+        Item = Library.API.get_Item(ItemId, (EmbyType,), False, False, False, Strict=True)
 
         if Item:
             Item['LibraryId'] = LibraryId

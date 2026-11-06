@@ -11,66 +11,46 @@ DBConnectionsRO = {}
 def DBVacuum():
     utils.close_dialog(10146) # addoninformation
     utils.create_ProgressBar("DBVacuum", utils.Translate(33199), utils.Translate(33436))
-    TotalItems = len(utils.DatabaseFiles) / 100
-    Index = 1
-
-    for DBID, DBFile in list(utils.DatabaseFiles.items()):
-        utils.update_ProgressBar("DBVacuum", Index / TotalItems, utils.Translate(33436), str(DBID))
-
-        if 'version' in DBID:
-            Index += 1
-            continue
-
-        if not xbmcvfs.exists(DBFile):
-            Index += 1
-            continue
-
-        if DBID not in DBConnectionsRW:
-            DBConnectionsRW[DBID] = [None, None, threading.Condition(threading.Lock()), False]
-
-        with utils.SafeLock(DBConnectionsRW[DBID][2]):
-            while DBConnectionsRW[DBID][3]:
-                DBConnectionsRW[DBID][2].wait(timeout=0.1)
-                xbmc.sleep(1)
-
-            DBConnectionsRW[DBID][3] = True
-
-            while True:
+    TotalItems = max(len(utils.DatabaseFiles), 1) / 100
+    try:
+        for Index, (DBID, DBFile) in enumerate(list(utils.DatabaseFiles.items()), 1):
+            utils.update_ProgressBar("DBVacuum", Index / TotalItems, utils.Translate(33436), str(DBID))
+            if 'version' in DBID or not xbmcvfs.exists(DBFile):
+                continue
+            State = DBConnectionsRW.setdefault(DBID, [None, None, threading.Condition(threading.Lock()), False])
+            with utils.SafeLock(State[2]):
+                while State[3]:
+                    if utils.SystemShutdown:
+                        return
+                    State[2].wait(timeout=0.1)
+                if utils.SystemShutdown:
+                    return
+                State[3] = True
                 try:
-                    DBConnectionsRW[DBID][0] = sqlite3.connect(DBFile, timeout=0.1)
-                    break
-                except:
-                    xbmc.sleep(100)
+                    State[0] = sqlite3.connect(DBFile, timeout=5)
+                    State[1] = State[0].cursor()
+                    if DBID == "music":
+                        State[1].execute("DELETE FROM removed_link")
+                        State[0].commit()
+                    # Keep the existing journal mode even if VACUUM is interrupted.
+                    State[0].execute("VACUUM")
+                    State[0].execute("ANALYZE")
+                    State[0].commit()
+                finally:
+                    try:
+                        if State[1]:
+                            State[1].close()
+                    finally:
+                        try:
+                            if State[0]:
+                                State[0].close()
+                        finally:
+                            State[0] = State[1] = None
+                            State[3] = False
+                            State[2].notify_all()
+    finally:
+        utils.close_ProgressBar("DBVacuum")
 
-            DBConnectionsRW[DBID][1] = DBConnectionsRW[DBID][0].cursor()
-
-            if DBID == "music":
-                DBConnectionsRW[DBID][1].execute("DELETE FROM removed_link")
-                DBConnectionsRW[DBID][0].commit()
-                DBConnectionsRW[DBID][1].close()
-                DBConnectionsRW[DBID][1] = None
-
-            try:
-                DBConnectionsRW[DBID][0].execute("PRAGMA journal_mode=OFF")
-            except:
-                xbmc.log(f"EMBY.database.dbio: Journalmode cannot be changed to OFF ---> DBVacuum: {DBID}", xbmc.LOGWARNING)
-
-            DBConnectionsRW[DBID][0].execute("PRAGMA page_size=65536")
-            DBConnectionsRW[DBID][0].execute("VACUUM")
-
-            try:
-                DBConnectionsRW[DBID][0].execute("PRAGMA journal_mode=WAL")
-            except:
-                xbmc.log(f"EMBY.database.dbio: Journalmode cannot be changed to WAL ---> DBVacuum: {DBID}", xbmc.LOGWARNING)
-
-            DBConnectionsRW[DBID][0].execute("ANALYZE")
-            DBConnectionsRW[DBID][0].close()
-            DBConnectionsRW[DBID][0] = None
-            DBConnectionsRW[DBID][3] = False
-            DBConnectionsRW[DBID][2].notify_all()
-            Index += 1
-
-    utils.close_ProgressBar("DBVacuum")
 
 def DBOpenRO(DBID, TaskId, Timeout=999999):
     DBIDThreadID = f"{DBID}{TaskId}{threading.get_ident()}"
@@ -100,64 +80,105 @@ def DBCloseRO(DBID, TaskId):
     else:
         xbmc.log(f"EMBY.database.dbio: DBIDThreadID not found {DBIDThreadID}", xbmc.LOGERROR)
 
-def DBOpenRW(Databases, TaskId, SQLs):
-    DBIDs = Databases.split(",")
-
-    for DBID in DBIDs:
-        if DBID in utils.DatabaseFiles:
-            if DBID not in DBConnectionsRW:
-                DBConnectionsRW[DBID] = [None, None, threading.Condition(threading.Lock()), False]
-
-            with utils.SafeLock(DBConnectionsRW[DBID][2]):
-                while DBConnectionsRW[DBID][3]:
-                    DBConnectionsRW[DBID][2].wait(timeout=0.1)
-                    xbmc.sleep(1)
-
-                DBConnectionsRW[DBID][3] = True
-
-                while True:
+def DBOpenRW(Databases, TaskId, SQLs, *, AllowDuringShutdown=False):
+    Opened = []
+    try:
+        # All callers acquire multiple Kodi databases in the same order.
+        for DBID in sorted(set(Databases.split(",")), key=lambda Id: (Id in ('video', 'music', 'texture'), Id)):
+            if DBID not in utils.DatabaseFiles:
+                continue
+            State = DBConnectionsRW.setdefault(DBID, [None, None, threading.Condition(threading.Lock()), False])
+            with utils.SafeLock(State[2]):
+                while State[3]:
+                    if utils.SystemShutdown and not AllowDuringShutdown:
+                        raise InterruptedError("Database open cancelled")
+                    State[2].wait(timeout=0.1)
+                if utils.SystemShutdown and not AllowDuringShutdown:
+                    raise InterruptedError("Database open cancelled")
+                State[3] = True
+                Opened.append(DBID)
+                for Attempt in range(50):
+                    if utils.SystemShutdown and not AllowDuringShutdown:
+                        raise InterruptedError("Database open cancelled")
                     try:
-                        DBConnectionsRW[DBID][0] = sqlite3.connect(utils.DatabaseFiles[DBID], timeout=0.1, check_same_thread=False)
-                        DBConnectionsRW[DBID][1] = DBConnectionsRW[DBID][0].cursor()
-                        DBConnectionsRW[DBID][0].execute("PRAGMA temp_store=MEMORY")
-                        DBConnectionsRW[DBID][0].execute("PRAGMA journal_mode=WAL")
-                        DBConnectionsRW[DBID][0].execute("PRAGMA synchronous=NORMAL")
-                        DBConnectionsRW[DBID][0].execute("PRAGMA secure_delete=OFF")
-                        DBConnectionsRW[DBID][1].execute("BEGIN IMMEDIATE TRANSACTION")
+                        State[0] = sqlite3.connect(utils.DatabaseFiles[DBID], timeout=0.1, check_same_thread=False)
+                        State[1] = State[0].cursor()
+                        State[0].execute("PRAGMA temp_store=MEMORY")
+                        State[0].execute("PRAGMA journal_mode=WAL")
+                        State[0].execute("PRAGMA synchronous=NORMAL")
+                        State[0].execute("PRAGMA secure_delete=OFF")
+                        State[1].execute("BEGIN IMMEDIATE TRANSACTION")
                         break
-                    except:
-                        if DBConnectionsRW[DBID][0]:
-                            DBConnectionsRW[DBID][0].close()
-                            DBConnectionsRW[DBID][0] = None
-                            DBConnectionsRW[DBID][1] = None
-
+                    except sqlite3.OperationalError as Error:
+                        if State[1]:
+                            State[1].close()
+                        if State[0]:
+                            State[0].close()
+                        State[0] = State[1] = None
+                        Code = getattr(Error, "sqlite_errorcode", 0) & 255
+                        Busy = Code in (5, 6) or str(Error).lower() in ("database is locked", "database table is locked")
+                        if not Busy or Attempt == 49:
+                            raise
                         xbmc.sleep(100)
-
                 if DBID == 'video':
-                    SQLs[DBID] = video_db.VideoDatabase(DBConnectionsRW[DBID][1])
+                    SQLs[DBID] = video_db.VideoDatabase(State[1])
                 elif DBID == 'music':
-                    SQLs[DBID] = music_db.MusicDatabase(DBConnectionsRW[DBID][1])
+                    SQLs[DBID] = music_db.MusicDatabase(State[1])
                 elif DBID == 'texture':
-                    SQLs[DBID] = texture_db.TextureDatabase(DBConnectionsRW[DBID][1])
+                    SQLs[DBID] = texture_db.TextureDatabase(State[1])
                 else:
-                    SQLs["emby"] = emby_db.EmbyDatabase(DBConnectionsRW[DBID][1])
+                    SQLs["emby"] = emby_db.EmbyDatabase(State[1])
+    except Exception:
+        # Only release connections acquired by this call; earlier caller-owned DBs survive.
+        DBCloseRW(",".join(Opened), TaskId, SQLs, Commit=False)
+        raise
 
-def DBCloseRW(Databases, TaskId, SQLs):
-    DBIDs = Databases.split(",")
 
-    for DBID in DBIDs:
-        if DBID in DBConnectionsRW:
-            with utils.SafeLock(DBConnectionsRW[DBID][2]):
-                DBConnectionsRW[DBID][0].commit()
-                DBConnectionsRW[DBID][1].close() # curser close
-                DBConnectionsRW[DBID][0].close() # db close
-
-                if DBID in ('video', 'music', 'texture'):
-                    SQLs[DBID] = None
-                else:
-                    SQLs["emby"] = None
-
-                DBConnectionsRW[DBID][0] = None
-                DBConnectionsRW[DBID][1] = None
-                DBConnectionsRW[DBID][3] = False
-                DBConnectionsRW[DBID][2].notify_all()
+def DBCloseRW(Databases, TaskId, SQLs, Commit=True):
+    Error = None
+    for DBID in Databases.split(","):
+        State = DBConnectionsRW.get(DBID)
+        if not State:
+            continue
+        with utils.SafeLock(State[2]):
+            Connection, Cursor = State[:2]
+            Database = SQLs.get("emby") if DBID not in ('video', 'music', 'texture') else None
+            Files = getattr(Database, "PlaylistFiles", None)
+            Committed = False
+            try:
+                if Connection:
+                    if Commit and Error is None:
+                        Connection.commit()
+                        Committed = True
+                        if getattr(Database, "PendingPlaylistDeletes", None):
+                            try:
+                                Database.delete_pending_playlist_files()
+                            except Exception as Failure:
+                                # The mapping is durable; failed cleanup may leave an unused file.
+                                xbmc.log(f"EMBY.database.dbio: Playlist file cleanup failed: {type(Failure).__name__}", xbmc.LOGWARNING)
+                    else:
+                        Connection.rollback()
+            except Exception as Failure:
+                Error = Error or Failure
+            finally:
+                if Files:
+                    try:
+                        Files.close(Committed)
+                    except Exception as Failure:
+                        if not Committed:
+                            Error = Error or Failure
+                        else:
+                            xbmc.log(f"EMBY.database.dbio: Playlist backup cleanup failed: {type(Failure).__name__}", xbmc.LOGWARNING)
+                # Closing an uncommitted sqlite connection rolls its transaction back.
+                for Resource in (Cursor, Connection):
+                    if Resource:
+                        try:
+                            Resource.close()
+                        except Exception as Failure:
+                            Error = Error or Failure
+                SQLs[DBID if DBID in ('video', 'music', 'texture') else 'emby'] = None
+                State[0] = State[1] = None
+                State[3] = False
+                State[2].notify_all()
+    if Error is not None:
+        raise Error

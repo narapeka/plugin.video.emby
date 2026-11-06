@@ -11,6 +11,8 @@ SeasonPlot = utils.DatabaseFiles["video-version"] >= 145
 
 
 class VideoDatabase:
+    _UNCHANGED = object()
+
     def __init__(self, cursor):
         self.cursor = cursor
         self.common_db = common_db.CommonDatabase(cursor)
@@ -24,22 +26,20 @@ class VideoDatabase:
 
     def add_Index(self):
         try: # xbox issue
-            self.cursor.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_files_strFilename'")
-            IndexTest = self.cursor.fetchone()
-
-            if not IndexTest:
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_files_strFilename on files (strFilename)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_files_dateAdded on files (dateAdded)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_files_lastPlayed on files (lastPlayed)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_files_playCount on files (playCount)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_bookmark_type on bookmark (type)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_bookmark_timeInSeconds on bookmark (timeInSeconds)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_rating_rating on rating (rating)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_episode_c12 on episode (c12)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_episode_idShow_idFile_c12 on episode (idShow, idFile, c12)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_genre_link_genre_id_media_id_media_type ON genre_link(genre_id, media_id, media_type)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_movie_idSet on movie (idSet)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_videoversion_media_type on videoversion (media_type)")
+            SchemaVersion = self.cursor.execute("PRAGMA schema_version").fetchone()[0]
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_files_strFilename on files (strFilename)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_files_dateAdded on files (dateAdded)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_files_lastPlayed on files (lastPlayed)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_files_playCount on files (playCount)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_bookmark_type on bookmark (type)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_bookmark_timeInSeconds on bookmark (timeInSeconds)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_rating_rating on rating (rating)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_episode_c12 on episode (c12)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_episode_idShow_idFile_c12 on episode (idShow, idFile, c12)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_genre_link_genre_id_media_id_media_type ON genre_link(genre_id, media_id, media_type)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_movie_idSet on movie (idSet)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_videoversion_media_type on videoversion (media_type)")
+            if self.cursor.execute("PRAGMA schema_version").fetchone()[0] != SchemaVersion:
                 self.cursor.execute("ANALYZE")
                 self.cursor.connection.commit()
                 self.cursor.execute("BEGIN IMMEDIATE TRANSACTION")
@@ -230,6 +230,23 @@ class VideoDatabase:
     def get_movieversion_fileids(self, KodiItemId):
         self.cursor.execute("SELECT idFile FROM videoversion WHERE idMedia = ? AND media_type = ? AND itemType = ?", (KodiItemId, "movie", VideoversionTypes["regular"]))
         return {Data[0] for Data in self.cursor.fetchall()}
+
+    def get_alternate_movie_path(self, KodiItemId, KodiFileId):
+        self.cursor.execute("""SELECT path.strPath, files.strFilename FROM videoversion
+            JOIN movie ON movie.idMovie = videoversion.idMedia
+            JOIN files ON files.idFile = videoversion.idFile
+            JOIN path ON path.idPath = files.idPath
+            WHERE movie.idMovie = ? AND files.idFile = ? AND movie.idFile <> files.idFile
+                AND videoversion.media_type = 'movie' AND videoversion.itemType = ?""",
+                            (KodiItemId, KodiFileId, VideoversionTypes["regular"]))
+        Row = self.cursor.fetchone()
+        if not Row:
+            return ""
+        Path, Filename = Row
+        if Filename.startswith(("stack://", "plugin://")):
+            return Filename
+        Folder, Separator, Options = Path.partition("|")
+        return Folder + Filename + Separator + Options
 
     def update_movie_version(self, KodiItemId, KodiFileId, KodiPathId, Path, Filename, DateCreated, KodiStackedFilename, VersionName):
         self.update_file(KodiFileId, DateCreated, Filename, KodiStackedFilename)
@@ -745,21 +762,26 @@ class VideoDatabase:
         self.cursor.execute("SELECT idFile FROM videoversion WHERE idMedia = ? AND media_type = ?", (KodiItemId, KodiType))
         return self.cursor.fetchall()
 
-    def get_BookmarkData_by_videoversion(self, KodiItemId, KodiType):
-        self.cursor.execute("SELECT idFile FROM videoversion WHERE idMedia = ? AND media_type = ?", (KodiItemId, KodiType))
-        KodiFileIds = self.cursor.fetchall()
-        BookmarkData = len(KodiFileIds) * [()] # pre allocate memory
-
-        for Index, KodiFileId in enumerate(KodiFileIds):
-            self.cursor.execute("SELECT iVideoDuration FROM streamdetails WHERE idFile = ? AND iStreamType = ?", (KodiFileId[0], 0))
-            RuntimeTicks = self.cursor.fetchone()
-
-            if RuntimeTicks and RuntimeTicks[0]:
-                BookmarkData[Index] = (KodiFileId[0], float(RuntimeTicks[0]))
-            else:
-                BookmarkData[Index] = (KodiFileId[0], 0)
-
-        return BookmarkData
+    def get_movie_bookmark_data(self, KodiItemId, Progress):
+        # A grouped movie's metadata duration can belong to a different version.
+        self.cursor.execute(
+            """
+            SELECT version.idFile, CASE WHEN :progress > 0 THEN COALESCE(
+                (SELECT MAX(stream.iVideoDuration) FROM streamdetails AS stream
+                 WHERE stream.idFile = version.idFile AND stream.iStreamType = 0
+                   AND stream.iVideoDuration > :progress),
+                (SELECT CAST(movie.c11 AS REAL) FROM movie
+                 WHERE movie.idMovie = version.idMedia AND movie.idFile = version.idFile
+                   AND CAST(movie.c11 AS REAL) > :progress AND version.itemType = :regular
+                   AND NOT EXISTS (
+                       SELECT 1 FROM videoversion AS sibling
+                       WHERE sibling.idMedia = version.idMedia AND sibling.media_type = 'movie'
+                         AND sibling.itemType = :regular AND sibling.idFile <> version.idFile
+                   )), 0) ELSE 0 END
+            FROM videoversion AS version
+            WHERE version.idMedia = :movie AND version.media_type = 'movie'
+        """, {"movie": KodiItemId, "progress": Progress or 0, "regular": VideoversionTypes["regular"]})
+        return self.cursor.fetchall()
 
 
     # people
@@ -1241,6 +1263,15 @@ class VideoDatabase:
         del SQLData1
         return UniqueId
 
+    def get_movie_tmdb_ids(self):
+        self.cursor.execute("SELECT media_id, value FROM uniqueid WHERE media_type = 'movie' AND type = 'tmdb' AND value IS NOT NULL")
+        TmdbIds = {}
+        for KodiId, TmdbId in self.cursor:
+            TmdbId = TmdbId.strip()
+            if TmdbId.isascii() and TmdbId.isdecimal() and int(TmdbId) > 0:
+                TmdbIds[KodiId] = str(int(TmdbId))
+        return TmdbIds
+
     def get_UniqueIds(self, KodiItemId, KodiType):
         self.cursor.execute("SELECT type, value FROM uniqueid WHERE media_id = ? AND media_type = ?", (KodiItemId, KodiType))
         UniqueIdData = self.cursor.fetchall()
@@ -1267,33 +1298,54 @@ class VideoDatabase:
 
         del SQLData
 
-    def update_bookmark_playstate(self, KodiFileId, playcount, date_played, Progress, Runtime):
+    def delete_movie_resume_bookmarks(self, KodiItemId):
+        self.cursor.execute(
+            "DELETE FROM bookmark WHERE type = 1 AND idFile IN "
+            "(SELECT idFile FROM videoversion WHERE idMedia = ? AND media_type = 'movie' AND itemType = ?)",
+            (KodiItemId, VideoversionTypes["regular"]))
+        return self.cursor.rowcount > 0
+
+    def fill_resume_bookmark_duration(self, KodiFileId, Runtime):
+        if Runtime and Runtime > 0:
+            self.cursor.execute(
+                "UPDATE bookmark SET totalTimeInSeconds = ? WHERE idFile = ? AND type = 1 "
+                "AND COALESCE(totalTimeInSeconds, 0) <= 0 AND timeInSeconds > 0 AND timeInSeconds < ?",
+                (Runtime, KodiFileId, Runtime))
+
+    def update_bookmark_playstate(self, KodiFileId, playcount=_UNCHANGED, date_played=_UNCHANGED,
+                                  Progress=_UNCHANGED, Runtime=None, *, MarkPlayed=False):
         Update = False
 
-        self.cursor.execute("SELECT timeInSeconds FROM bookmark WHERE idFile = ? AND type = ?", (KodiFileId, "1"))
-        Data = self.cursor.fetchone()
-
-        if Data:
-            CurrentProgress = Data[0]
-
-            if Progress:
-                if CurrentProgress != Progress:
-                    self.cursor.execute("UPDATE bookmark SET timeInSeconds = ?, totalTimeInSeconds = ? WHERE idFile = ? AND type = ?", (Progress, Runtime, KodiFileId, 1))
+        if Progress is not self._UNCHANGED:
+            self.cursor.execute("SELECT timeInSeconds, totalTimeInSeconds FROM bookmark WHERE idFile = ? AND type = 1", (KodiFileId,))
+            Data = self.cursor.fetchone()
+            if Data:
+                if not Progress:
+                    self.cursor.execute("DELETE FROM bookmark WHERE idFile = ? AND type = 1", (KodiFileId,))
                     Update = True
-            else:
-                self.cursor.execute("DELETE FROM bookmark WHERE idFile = ? AND type = ?", (KodiFileId, "1"))
+                elif Data[0] != Progress or (Runtime and (Data[1] or 0) <= 0):
+                    self.cursor.execute("UPDATE bookmark SET timeInSeconds = ?, totalTimeInSeconds = ? WHERE idFile = ? AND type = 1",
+                                        (Progress, Runtime or Data[1], KodiFileId))
+                    Update = True
+            elif Progress:
+                self.cursor.execute("INSERT INTO bookmark(idFile, timeInSeconds, totalTimeInSeconds, player, type) VALUES (?, ?, ?, ?, 1)", (KodiFileId, Progress, Runtime, "VideoPlayer"))
                 Update = True
-        elif Progress:
-            Update = True
-            self.cursor.execute("INSERT INTO bookmark(idFile, timeInSeconds, totalTimeInSeconds, player, type) VALUES (?, ?, ?, ?, ?)", (KodiFileId, Progress, Runtime, "VideoPlayer", 1))
+
+        if playcount is self._UNCHANGED and date_played is self._UNCHANGED and not MarkPlayed:
+            return Update
 
         # Update playcounter and last played date
-        self.cursor.execute("SELECT playCount FROM files WHERE idFile = ?", (KodiFileId,))
+        self.cursor.execute("SELECT playCount, lastPlayed FROM files WHERE idFile = ?", (KodiFileId,))
         Data = self.cursor.fetchone()
 
         if Data:
-            CurrentPlayCount = Data[0]
-            self.cursor.execute("UPDATE files SET playCount = ?, lastPlayed = ? WHERE idFile = ?", (playcount, date_played, KodiFileId))
+            CurrentPlayCount, CurrentLastPlayed = Data
+            if playcount is self._UNCHANGED:
+                playcount = (CurrentPlayCount or 1) if MarkPlayed else CurrentPlayCount
+            if date_played is self._UNCHANGED:
+                date_played = CurrentLastPlayed
+            if (playcount, date_played) != Data:
+                self.cursor.execute("UPDATE files SET playCount = ?, lastPlayed = ? WHERE idFile = ?", (playcount, date_played, KodiFileId))
 
             if (CurrentPlayCount != playcount) and ((CurrentPlayCount and playcount and playcount -1 != CurrentPlayCount) or (not playcount and CurrentPlayCount) or (not CurrentPlayCount and playcount)):
                 Update = True

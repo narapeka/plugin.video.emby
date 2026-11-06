@@ -13,19 +13,17 @@ class MusicDatabase:
         self.cursor.execute("INSERT OR REPLACE INTO role(idRole, strRole) VALUES (?, ?)", (2, "composer"))
 
         try: # xbox issue
-            self.cursor.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_album_strType'")
-            IndexTest = self.cursor.fetchone()
-
-            if not IndexTest:
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_strType on album (strType)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_dateadded on album (dateAdded)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_song_dateadded on song (dateAdded)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_song_comment_strGenres on song (comment, strGenres)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_artist_strDisambiguation on artist (strDisambiguation)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_strReleaseType on album (strReleaseType)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_song_idAlbum_lastplayed_iTimesPlayed on song (idAlbum, lastplayed, iTimesPlayed)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_song_strMusicBrainzTrackID on song (strMusicBrainzTrackID)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_song_strArtistDisp_strTitle on song (strArtistDisp, strTitle)")
+            SchemaVersion = self.cursor.execute("PRAGMA schema_version").fetchone()[0]
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_strType on album (strType)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_dateadded on album (dateAdded)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_song_dateadded on song (dateAdded)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_song_comment_strGenres on song (comment, strGenres)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_artist_strDisambiguation on artist (strDisambiguation)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_album_strReleaseType on album (strReleaseType)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_song_idAlbum_lastplayed_iTimesPlayed on song (idAlbum, lastplayed, iTimesPlayed)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_song_strMusicBrainzTrackID on song (strMusicBrainzTrackID)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_song_strArtistDisp_strTitle on song (strArtistDisp, strTitle)")
+            if self.cursor.execute("PRAGMA schema_version").fetchone()[0] != SchemaVersion:
                 self.cursor.execute("ANALYZE")
                 self.cursor.connection.commit()
                 self.cursor.execute("BEGIN IMMEDIATE TRANSACTION")
@@ -182,15 +180,16 @@ class MusicDatabase:
     # song
 
 
-    def add_song_tag(self, KodiId, Tag): # e.g. for playlists
+    def remove_song_tag(self, KodiId, Tag):
         self.cursor.execute("SELECT comment FROM song WHERE idSong = ?", (KodiId,))
-        Comment = self.cursor.fetchone()
+        Row = self.cursor.fetchone()
+        if Row and Row[0]:
+            Lines = Row[0].split("\n")
+            if Tag in Lines:
+                Comment = "\n".join(Line for Line in Lines if Line != Tag)
+                self.cursor.execute("UPDATE song SET comment = ? WHERE idSong = ?", (Comment, KodiId))
 
-        if Comment:
-            Comment = f"{Comment[0]}\n{Tag}"
-            self.cursor.execute("UPDATE song SET comment = ? WHERE idSong = ?", (Comment, KodiId))
-
-    def add_song(self, KodiPathId, AlbumId, Artist, Genre, Title, Index, Runtime, PremiereDate, Year, Filename, CommunityRating, Comment, DateAdded, BitRate, SampleRate, Channels, MusicBrainzTrackID, ArtistSort, LibraryId):
+    def add_song(self, KodiPathId, AlbumId, Artist, Genre, Title, Index, Runtime, PremiereDate, Year, Filename, CommunityRating, Comment, DateAdded, BitRate, SampleRate, Channels, MusicBrainzTrackID, ArtistSort, LibraryId, PlaylistId=""):
         if CommunityRating:
             Rating = float(CommunityRating)
         else:
@@ -204,6 +203,9 @@ class MusicDatabase:
         else:
             Comment = f"EmbyLibraryId-{LibraryId}"
 
+        if PlaylistId:
+            Comment += f"\nEmbyPlaylistId-{PlaylistId}"
+
         BitRate, SampleRate, Channels, _ = set_metadata_song(Artist, Title, BitRate, SampleRate, Channels, None)
 
         while MusicBrainzTrackID != "UNKNOWN ERROR":
@@ -215,7 +217,7 @@ class MusicDatabase:
 
         return None
 
-    def update_song(self, KodiItemId, KodiPathId, AlbumId, Artist, Genre, Title, Index, Runtime, PremiereDate, Year, Filename, CommunityRating, Comment, DateAdded, BitRate, SampleRate, Channels, MusicBrainzTrackID, ArtistSort, KodiPath, PlaylistId):
+    def update_song(self, KodiItemId, KodiPathId, AlbumId, Artist, Genre, Title, Index, Runtime, PremiereDate, Year, Filename, CommunityRating, Comment, DateAdded, BitRate, SampleRate, Channels, MusicBrainzTrackID, ArtistSort, KodiPath, PlaylistId, *, AddPlaylistTag=False):
         if CommunityRating:
             Rating = float(CommunityRating)
         else:
@@ -241,6 +243,10 @@ class MusicDatabase:
                 Tag = CommentCurrent.split("-")
                 EmbyPlaylistIds += (Tag[1],)
 
+        KeepTrackNumber = EmbyPlaylistIds and str(PlaylistId) not in EmbyPlaylistIds
+        if AddPlaylistTag and PlaylistId and str(PlaylistId) not in EmbyPlaylistIds:
+            EmbyPlaylistIds += (str(PlaylistId),)
+
         if not Comment: # Comment could be None
             Comment = ""
 
@@ -259,7 +265,7 @@ class MusicDatabase:
         # Update song
         BitRate, SampleRate, Channels, _ = set_metadata_song(Artist, Title, BitRate, SampleRate, Channels, None)
 
-        if EmbyPlaylistIds and (not PlaylistId or str(PlaylistId) not in EmbyPlaylistIds): # Do not update existing track numbers when metadata from playlist
+        if KeepTrackNumber: # Do not update existing track numbers when metadata from another playlist
             while MusicBrainzTrackID != "UNKNOWN ERROR":
                 try:
                     self.cursor.execute("UPDATE song SET idAlbum = ?, idPath = ?, strArtistDisp = ?, strGenres = ?, strTitle = ?, iDuration = ?, strOrigReleaseDate = ?, strReleaseDate = ?, strFileName = ?, rating = ?, comment = ?, dateAdded = ?, iBitRate = ?, iSampleRate = ?, iChannels = ?, strMusicBrainzTrackID = ?, strArtistSort = ? WHERE idSong = ?", (AlbumId, KodiPathId, Artist, Genre, Title, Runtime, Year, PremiereDate, Filename, Rating, Comment, DateAdded, BitRate, SampleRate, Channels, MusicBrainzTrackID, ArtistSort, KodiItemId))
@@ -281,8 +287,19 @@ class MusicDatabase:
         self.cursor.execute("DELETE FROM song_artist WHERE idSong = ?", (SongId,))
         self.cursor.execute("DELETE FROM removed_link")
 
-    def update_song_metadata(self, iTimesPlayed, lastplayed, idSong):
-        self.cursor.execute("UPDATE song SET iTimesPlayed = ?, lastplayed = ? WHERE idSong = ?", (iTimesPlayed, lastplayed, idSong))
+    def update_song_playstate(self, idSong, **Updates):
+        Assignments = []
+        Values = []
+        if 'playcount' in Updates:
+            Assignments.append("iTimesPlayed = ?")
+            Values.append(Updates['playcount'])
+        elif Updates.get('MarkPlayed'):
+            Assignments.append("iTimesPlayed = CASE WHEN COALESCE(iTimesPlayed, 0) = 0 THEN 1 ELSE iTimesPlayed END")
+        if 'date_played' in Updates:
+            Assignments.append("lastplayed = ?")
+            Values.append(Updates['date_played'])
+        if Assignments:
+            self.cursor.execute(f"UPDATE song SET {', '.join(Assignments)} WHERE idSong = ?", (*Values, idSong))
 
     def get_song_metadata_for_listitem(self, KodiId):
         self.cursor.execute("SELECT strArtists, strGenres, strTitle, iTrack, iDuration, strReleaseDate, strMusicBrainzTrackID, iTimesPlayed, comment, strAlbum, strPath, strAlbumArtists, strFileName, rating, strVideoURL, lastplayed, idAlbum FROM songview WHERE idSong = ?", (KodiId,))

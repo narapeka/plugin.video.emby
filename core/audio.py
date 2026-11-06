@@ -77,7 +77,7 @@ class Audio:
             KodiAlbumIds, KodiAlbumLibraryIds = self.SQLs["emby"].get_MusicAlbum_by_EmbyId(UpdateItem['MusicAlbumId'])
             KodiAlbumId = KodiAlbumIds[KodiAlbumLibraryIds.index(UpdateItem['LibraryId'])]
             self.SQLs["music"].update_album_info_by_audio(KodiAlbumId, UpdateItem['ParentIndexNumber'], UpdateItem['IndexNumber'], bool(PlaylistId))
-            self.SQLs["music"].update_song(UpdateKodiItemIdCurrent, UpdateItem['KodiPathId'], KodiAlbumId, UpdateItem['ArtistItemsName'], UpdateItem['MusicGenre'], UpdateItem['Name'], UpdateItem['KodiDiscTrack'], UpdateItem['KodiRunTimeTicks'], UpdateItem['KodiPremiereDate'], UpdateItem['KodiProductionYear'], UpdateItem['KodiFilename'], UpdateItem['CommunityRating'], UpdateItem['Overview'], UpdateItem['KodiDateCreated'], BitRate, SampleRate, Channels, UpdateItem['ProviderIds']['MusicBrainzTrack'], UpdateItem['ArtistItemsSortName'], UpdateItem['KodiPath'], PlaylistId)
+            self.SQLs["music"].update_song(UpdateKodiItemIdCurrent, UpdateItem['KodiPathId'], KodiAlbumId, UpdateItem['ArtistItemsName'], UpdateItem['MusicGenre'], UpdateItem['Name'], UpdateItem['KodiDiscTrack'], UpdateItem['KodiRunTimeTicks'], UpdateItem['KodiPremiereDate'], UpdateItem['KodiProductionYear'], UpdateItem['KodiFilename'], UpdateItem['CommunityRating'], UpdateItem['Overview'], UpdateItem['KodiDateCreated'], BitRate, SampleRate, Channels, UpdateItem['ProviderIds']['MusicBrainzTrack'], UpdateItem['ArtistItemsSortName'], UpdateItem['KodiPath'], PlaylistId, AddPlaylistTag=LibraryId == Item['LibraryId'])
             self.set_links(UpdateItem, UpdateKodiItemIdCurrent)
             common.remove_old_EmbyMusicArtist(self.SQLs["emby"], UpdateItem['Id'], UpdateItem['LibraryId'], EmbyMusicArtistIds, self.MusicArtistObject, IncrementalSync)
             common.remove_old_EmbyMusicGenre(self.SQLs["emby"], UpdateItem['Id'], UpdateItem['LibraryId'], EmbyMusicGenreIds, self.MusicGenreObject, IncrementalSync)
@@ -92,10 +92,9 @@ class Audio:
             KodiAlbumIds, KodiAlbumLibraryIds = self.SQLs["emby"].get_MusicAlbum_by_EmbyId(Item['MusicAlbumId'])
             KodiAlbumId = KodiAlbumIds[KodiAlbumLibraryIds.index(Item['LibraryId'])]
             self.SQLs["music"].update_album_info_by_audio(KodiAlbumId, Item['ParentIndexNumber'], Item['IndexNumber'], bool(PlaylistId))
-            KodiItemIdCurrent = self.SQLs["music"].add_song(Item['KodiPathId'], KodiAlbumId, Item['ArtistItemsName'], Item['MusicGenre'], Item['Name'], Item['KodiDiscTrack'], Item['KodiRunTimeTicks'], Item['KodiPremiereDate'], Item['KodiProductionYear'], Item['KodiFilename'], Item['CommunityRating'], Item['Overview'], Item['KodiDateCreated'], BitRate, SampleRate, Channels, Item['ProviderIds']['MusicBrainzTrack'], Item['ArtistItemsSortName'], Item['LibraryId'])
+            KodiItemIdCurrent = self.SQLs["music"].add_song(Item['KodiPathId'], KodiAlbumId, Item['ArtistItemsName'], Item['MusicGenre'], Item['Name'], Item['KodiDiscTrack'], Item['KodiRunTimeTicks'], Item['KodiPremiereDate'], Item['KodiProductionYear'], Item['KodiFilename'], Item['CommunityRating'], Item['Overview'], Item['KodiDateCreated'], BitRate, SampleRate, Channels, Item['ProviderIds']['MusicBrainzTrack'], Item['ArtistItemsSortName'], Item['LibraryId'], PlaylistId)
             Item['LibraryIds'] = common.add_Ids_SingleContent(LibraryIds, Item['LibraryId'])
             Item['KodiItemId'] = common.add_Ids_SingleContent(KodiItemIds, KodiItemIdCurrent)
-            Item['KodiItemIdNew'] = KodiItemIdCurrent
             self.SQLs["emby"].add_reference_audio(Item['Id'], Item['LibraryId'], KodiItemIds, Item['Path'], Item['KodiPathId'], LibraryIds, Item['MusicAlbumId'], EmbyMusicArtistIds, EmbyMusicGenreIds, Item['ParentId'])
             self.set_links(Item, KodiItemIdCurrent)
 
@@ -122,17 +121,19 @@ class Audio:
         if not common.verify_KodiIds(Item, IncrementalSync, False):
             return False
 
-        common.set_Favorite(Item)
+        FavoriteChanged = common.set_Favorite(Item)
+        if FavoriteChanged:
+            self.SQLs["emby"].update_favourite(Item['IsFavorite'], Item['Id'], "Audio")
+            if UpdateKodiFavorite and Item['Type'] != "Playlist":
+                self.set_favorite(Item['IsFavorite'], Item)
+
         common.set_playstate(Item)
-        self.SQLs["emby"].update_favourite(Item['IsFavorite'], Item['Id'], "Audio")
+        Playstate = common.get_playstate_updates(Item, IncludeProgress=False)
+        if Playstate:
+            for KodiItemId in Item['KodiItemId'].split(","):
+                self.SQLs["music"].update_song_playstate(KodiItemId, **Playstate)
 
-        if UpdateKodiFavorite and Item['Type'] != "Playlist":
-            self.set_favorite(Item['IsFavorite'], Item)
-
-        for KodiItemId in Item['KodiItemId'].split(","):
-            self.SQLs["music"].update_song_metadata(Item['KodiPlayCount'], Item['KodiLastPlayedDate'], KodiItemId)
-
-        return True
+        return bool(Playstate or FavoriteChanged)
 
     def remove(self, Item, IncrementalSync):
         if not common.verify_KodiIds(Item, IncrementalSync, False):

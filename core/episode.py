@@ -108,17 +108,14 @@ class Episode:
         if not common.verify_KodiIds(Item, IncrementalSync, True):
             return False
 
-        common.set_Favorite(Item)
+        if common.set_Favorite(Item):
+            if UpdateKodiFavorite:
+                self.set_favorite(Item['IsFavorite'], Item)
+            self.SQLs["emby"].update_favourite(Item['IsFavorite'], Item['Id'], "Episode")
+
         common.set_playstate(Item)
         common.set_RunTimeTicks(Item)
-        Update = self.SQLs["video"].update_bookmark_playstate(Item['KodiFileId'], Item['KodiPlayCount'], Item['KodiLastPlayedDate'], Item['KodiPlaybackPositionTicks'], Item['KodiRunTimeTicks'])
-
-        if UpdateKodiFavorite:
-            self.set_favorite(Item['IsFavorite'], Item)
-
-        self.SQLs["emby"].update_favourite(Item['IsFavorite'], Item['Id'], "Episode")
-
-        return Update
+        return self.SQLs["video"].update_bookmark_playstate(Item['KodiFileId'], Runtime=Item['KodiRunTimeTicks'], **common.get_playstate_updates(Item))
 
     # Remove showid, fileid, pathid, emby reference.
     # There's no episodes left, delete show and any possible remaining seasons

@@ -47,10 +47,6 @@ msgctxt "#30516"
 msgid "Playback"
 msgstr "播放"
 
-msgctxt "#30521"
-msgid "Jump back on resume (in seconds)"
-msgstr "恢复播放时回退时长（单位：秒）"
-
 msgctxt "#30529"
 msgid "Startup delay (in seconds)"
 msgstr "启动延迟（秒）"
@@ -153,7 +149,7 @@ msgstr "已添加"
 
 msgctxt "#33074"
 msgid "Restore factory settings? This clears Emby Gen settings and server connections, the entire Kodi video and music libraries (including non-Emby items and their local playback history), and all Kodi image caches. Kodi will restart."
-msgstr "确定恢复出厂设置吗？这会清除 Emby Gen 设置和服务器连接、整个 Kodi 视频和音乐库（包括非 Emby 条目及其本地播放记录），以及所有 Kodi 图片缓存。Kodi 将重启。"
+msgstr "确定恢复出厂设置吗？这会清除 Emby 插件设置和服务器连接、整个 Kodi 视频和音乐库（包括非 Emby 条目及其本地播放记录），以及所有 Kodi 图片缓存。Kodi 将重启。"
 
 msgctxt "#33086"
 msgid "Clear the entire Kodi image cache? Images will be loaded again as needed."
@@ -250,10 +246,6 @@ msgstr "添加、移除、更新或修复已同步的媒体库。"
 msgctxt "#33318"
 msgid "Leave blank to use the Kodi device name. Emby displays the name you enter here."
 msgstr "留空时使用 Kodi 的设备名称。填写后，Emby 将显示此名称。"
-
-msgctxt "#33320"
-msgid "Gap between playback stopped and continuation start."
-msgstr "播放停止与继续播放起始点之间的间隔（缓冲时长）。"
 
 msgctxt "#33340"
 msgid "Factory reset"
@@ -381,7 +373,7 @@ msgstr "以秒为单位调整网络超时时间。修改此设置后需要重启
 
 msgctxt "#33564"
 msgid "Sync Emby favorites to Kodi favorites"
-msgstr "将 Emby 收藏同步到 Kodi 收藏"
+msgstr "收藏夹同步"
 
 msgctxt "#33565"
 msgid "Kodi favorites.xml will be modified"
@@ -449,7 +441,7 @@ msgstr "无效参数"
 
 msgctxt "#33683"
 msgid "Enable start sync"
-msgstr "启用启动时同步"
+msgstr "启动时同步"
 
 msgctxt "#33684"
 msgid "If disabled, Emby content will not be synced while Kodi start"
@@ -473,7 +465,7 @@ msgstr "HTTP 媒体连接超时"
 
 msgctxt "#33718"
 msgid "Local web service workers"
-msgstr "本地 Web 服务线程数"
+msgstr "网络服务线程数"
 
 msgctxt "#33719"
 msgid "Higher values can improve performance but needs more resources. Changes are applied after a Kodi restart."
@@ -501,7 +493,7 @@ msgstr "当服务器忙于任务时暂停同步"
 
 msgctxt "#33768"
 msgid "Video preview thumbnail extraction"
-msgstr "视频预览缩略图提取"
+msgstr "视频缩略图提取"
 
 msgctxt "#33776"
 msgid "Scan media library"
@@ -845,8 +837,8 @@ msgid "Management"
 msgstr "管理"
 
 msgctxt "#33909"
-msgid "Resume playback"
-msgstr "续播"
+msgid "General"
+msgstr "常规"
 
 msgctxt "#33910"
 msgid "Timeouts and workers"
@@ -863,3 +855,31 @@ msgstr "维护工具"
 msgctxt "#33913"
 msgid "Reset"
 msgstr "重置"
+
+msgctxt "#33914"
+msgid "Unable to connect to Emby. Retrying..."
+msgstr "暂时无法连接到 Emby，正在重试"
+
+msgctxt "#33915"
+msgid "Reconnected to Emby"
+msgstr "已重新连接到 Emby"
+
+msgctxt "#33916"
+msgid "Independent progress per library"
+msgstr "分库独立进度"
+
+msgctxt "#33917"
+msgid "Enable only when every connected Emby server has independent progress per library enabled. Movie resume progress will follow each library without cross-library filtering. Changing this setting requires exiting and reopening Kodi."
+msgstr "仅在 Emby 服务器已启用分库独立进度后开启。电影续播进度将按各库分别同步，不再进行跨库过滤。切换此设置后需要退出并重新打开 Kodi。"
+
+msgctxt "#33918"
+msgid "Confirm that independent progress per library is enabled on every connected Emby server. Gen will sync each library's movie resume progress without cross-library filtering. Kodi will exit after confirmation; reopen it to apply this change."
+msgstr "请先确认 Emby 服务器已启用分库独立进度。插件将按各库分别同步电影续播进度，不再进行跨库过滤。确认后 Kodi 将退出，请重新打开以生效。"
+
+msgctxt "#33919"
+msgid "Gen will resume remembering the played movie and filtering shared resume progress across libraries. Kodi will exit after confirmation; reopen it to apply this change."
+msgstr "插件将恢复电影跨库续播归属记忆和共享进度过滤。确认后 Kodi 将退出，请重新打开以生效。"
+
+msgctxt "#33920"
+msgid "Confirm and exit"
+msgstr "确认并退出"

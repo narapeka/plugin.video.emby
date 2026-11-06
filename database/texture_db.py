@@ -8,12 +8,10 @@ class TextureDatabase:
 
     def add_Index(self):
         try: # xbox issue
-            self.cursor.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_texture_imagehash'")
-            IndexTest = self.cursor.fetchone()
-
-            if not IndexTest:
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_texture_cachedurl on texture (cachedurl)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_texture_imagehash on texture (imagehash)")
+            SchemaVersion = self.cursor.execute("PRAGMA schema_version").fetchone()[0]
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_texture_cachedurl on texture (cachedurl)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_texture_imagehash on texture (imagehash)")
+            if self.cursor.execute("PRAGMA schema_version").fetchone()[0] != SchemaVersion:
                 self.cursor.execute("ANALYZE")
         except Exception as Error:
             xbmc.log(f"EMBY.database.texture_db: Database add index error: {Error}", xbmc.LOGERROR)

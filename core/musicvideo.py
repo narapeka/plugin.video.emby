@@ -117,21 +117,24 @@ class MusicVideo:
         if not common.verify_KodiIds(Item, IncrementalSync, True):
             return False
 
-        common.set_Favorite(Item)
+        FavoriteChanged = common.set_Favorite(Item)
+        if FavoriteChanged:
+            self.SQLs["emby"].update_favourite(Item['IsFavorite'], Item['Id'], "MusicVideo")
+            if UpdateKodiFavorite and Item['Type'] != "Playlist":
+                self.set_favorite(Item['IsFavorite'], Item)
+
+        common.set_playstate(Item)
+        common.set_RunTimeTicks(Item)
+        Playstate = common.get_playstate_updates(Item)
         Update = False
         KodiItemIds = common.get_Ids_SingleContent(Item['KodiItemId'])
         KodiFileIds = common.get_Ids_SingleContent(Item['KodiFileId'])
 
-        for Index in range(len(KodiItemIds)):
-            KodiFileIdCurrent = KodiFileIds[Index]
-            common.set_playstate(Item)
-            common.set_RunTimeTicks(Item)
-            self.SQLs["video"].set_Favorite_Tag(Item['IsFavorite'], Item['KodiItemId'], "musicvideo")
-            Update = self.SQLs["video"].update_bookmark_playstate(KodiFileIdCurrent, Item['KodiPlayCount'], Item['KodiLastPlayedDate'], Item['KodiPlaybackPositionTicks'], Item['KodiRunTimeTicks'])
-            self.SQLs["emby"].update_favourite(Item['IsFavorite'], Item['Id'], "MusicVideo")
-
-            if UpdateKodiFavorite and Item['Type'] != "Playlist":
-                self.set_favorite(Item['IsFavorite'], Item)
+        for KodiItemId, KodiFileId in zip(KodiItemIds, KodiFileIds):
+            if FavoriteChanged:
+                self.SQLs["video"].set_Favorite_Tag(Item['IsFavorite'], KodiItemId, "musicvideo")
+            if self.SQLs["video"].update_bookmark_playstate(KodiFileId, Runtime=Item['KodiRunTimeTicks'], **Playstate):
+                Update = True
 
         return Update
 

@@ -2,7 +2,7 @@ import threading
 import xbmc
 import xbmcvfs
 import xbmcgui
-from helper import utils, cache
+from helper import utils, cache, copy
 from database import dbio
 from emby import listitem
 
@@ -411,7 +411,7 @@ def PlayBackDuration():
 
     return 0
 
-def PlayEmby(ItemIds, PlayCommand, StartIndex, StartPositionTicks, ServerData, API):
+def PlayEmby(ItemIds, PlayCommand, StartIndex, StartPositionTicks, ServerData, API, MediaSourceId=None):
     global PlayerId
     global AVStarted
     global PlayerPause
@@ -421,43 +421,97 @@ def PlayEmby(ItemIds, PlayCommand, StartIndex, StartPositionTicks, ServerData, A
         return
 
     StartIndex = max(StartIndex, 0)
+    if StartIndex >= len(ItemIds) or PlayCommand not in ("PlayNow", "PlayNext", "PlayLast"):
+        xbmc.log("EMBY.helper.playerops: Invalid remote playlist request", xbmc.LOGWARNING)
+        return
     hasVideo = False
 
     # Check if content is synced and load item data
     embydb = dbio.DBOpenRO(ServerData['ServerId'], "AddPlaylistItem")
+    videodb = None
     LoadFromServer = False
     PlaylistItems = len(ItemIds) * [None] # pre allocate memory
 
-    for Index, EmbyID in enumerate(ItemIds):
-        KodiId, KodiType = embydb.get_KodiId_by_EmbyId(EmbyID)
+    try:
+        for Index, EmbyID in enumerate(ItemIds):
+            if Index == StartIndex and MediaSourceId:
+                PlaylistItems[Index] = [EmbyID, None, None, None, None, None, None]
+                LoadFromServer = True
+                continue
+            KodiId, KodiType = embydb.get_KodiId_by_EmbyId(EmbyID)
 
-        if KodiId: # synced content
-            if KodiType != "song":
-                hasVideo = True
+            if KodiId: # synced content
+                KodiId = int(str(KodiId).split(",", 1)[0])
+                if KodiType != "song":
+                    hasVideo = True
+                if KodiType == "movie":
+                    Movie = embydb.get_item_by_id(EmbyID, "Movie")
+                    if Movie and Movie[3]:
+                        if videodb is None:
+                            videodb = dbio.DBOpenRO("video", "AddPlaylistItem")
+                        Path = videodb.get_alternate_movie_path(KodiId, Movie[3])
+                        if Path:
+                            _, Position, _, _ = videodb.get_Progress(Movie[3])
+                            KodiItem = videodb.get_movie_metadata_for_listitem(KodiId, Path)
+                            listitem.set_ListItem_from_Kodi_database(KodiItem, "")
+                            PlaylistItems[Index] = [EmbyID, "Movie", None, None, KodiItem['ListItem'], Path, round((Position or 0) * 10000000)]
+                            continue
 
-            PlaylistItems[Index] = [EmbyID, utils.KodiTypeMapping[KodiType], KodiType, KodiId, None, None, None]
-        else: # not synced content
-            PlaylistItems[Index] = [EmbyID, None, None, None, None, None, None]
-            LoadFromServer = True
-
-    dbio.DBCloseRO(ServerData['ServerId'], "AddPlaylistItem")
+                PlaylistItems[Index] = [EmbyID, utils.KodiTypeMapping[KodiType], KodiType, KodiId, None, None, None]
+            else: # not synced content
+                PlaylistItems[Index] = [EmbyID, None, None, None, None, None, None]
+                LoadFromServer = True
+    finally:
+        if videodb is not None:
+            dbio.DBCloseRO("video", "AddPlaylistItem")
+        dbio.DBCloseRO(ServerData['ServerId'], "AddPlaylistItem")
 
     # Load Additional data from server check content
     if LoadFromServer:
-        Items = len(ItemIds) * [None] # pre allocate memory
-        ItemIdsString = [str(ItemId) for ItemId in ItemIds] # Convert Emby Id (integer) to string values
+        Items = {}
+        ItemIdsString = [str(Item[0]) for Item in PlaylistItems if not Item[1]]
 
-        for Index, Item in enumerate(API.get_Items_Ids(ItemIdsString, ["All"], True, False, "", "", {}, None, False)): # Use "All" to disable sorting by API
-            if not Item: # skip empty or synced content item
+        for Item in API.get_Items_Ids(ItemIdsString, ["All"], True, False, "", "", {}, None, bool(MediaSourceId), Strict=True):
+            if not Item:
                 continue
 
             if Item["Type"] not in ("Movie", "Video", "Episode", "MusicVideo", "Audio"):
-                return
+                continue
 
             if Item["Type"] != "Audio":
                 hasVideo = True
 
-            Items[Index] = Item
+            Items[str(Item['Id'])] = Item
+
+        Unavailable = {Index for Index, Item in enumerate(PlaylistItems)
+                       if not Item[1] and str(Item[0]) not in Items}
+        if Unavailable:
+            if PlayCommand == "PlayNow" and StartIndex in Unavailable:
+                xbmc.log("EMBY.helper.playerops: Requested start item is unavailable", xbmc.LOGWARNING)
+                return
+            if StartIndex in Unavailable:
+                MediaSourceId = None
+            StartIndex -= sum(Index < StartIndex for Index in Unavailable)
+            PlaylistItems = [Item for Index, Item in enumerate(PlaylistItems) if Index not in Unavailable]
+            if not PlaylistItems:
+                return
+
+        for Index, PlaylistItem in enumerate(PlaylistItems):
+            if not PlaylistItem[1]:
+                if PlayCommand == "PlayNow" and Index != StartIndex:
+                    continue
+                Item = Items[str(PlaylistItem[0])]
+                if Index == StartIndex and MediaSourceId:
+                    Source = next((Source for Source in Item.get('MediaSources', ()) if Source['Id'] == MediaSourceId), None)
+                    if not Source:
+                        xbmc.log("EMBY.helper.playerops: Requested media source not found", xbmc.LOGWARNING)
+                        return
+                    Item = copy.Object({Key: Value for Key, Value in Item.items() if Key not in ('ListItem', 'MediaSources')})
+                    Item['MediaSources'] = [copy.Object(Source)]
+                    Item['Container'] = Source.get('Container') or Item.get('Container', "")
+                    PlaylistItems[Index] = load_Remoteitems(Item, PlaylistItem, ServerData['ServerId'], CacheItem=False)
+                else:
+                    PlaylistItems[Index] = load_Remoteitems(Item, PlaylistItem, ServerData['ServerId'])
 
     # Select player
 
@@ -468,10 +522,6 @@ def PlayEmby(ItemIds, PlayCommand, StartIndex, StartPositionTicks, ServerData, A
         PlayerIdPlaylistId = 0
         PlayerId = 0
 
-    # Load StartIndex item
-    if not PlaylistItems[StartIndex][1]: # Load data for unsynced content
-        PlaylistItems[StartIndex] = load_Remoteitems(Items[StartIndex], PlaylistItems[StartIndex], ServerData['ServerId'])
-
     # Prepare music/video playlist for StartIndex item and start playback
     if PlayCommand in ("PlayNow", "PlayNext"):
         KodiPlaylistIndexStartitem = GetPlaylistPosition(PlayerIdPlaylistId) + 1
@@ -480,13 +530,16 @@ def PlayEmby(ItemIds, PlayCommand, StartIndex, StartPositionTicks, ServerData, A
     else:
         return
 
-    if PlaylistItems[StartIndex][2]: # synced item (KodiType available)
-        InsertPlaylist(PlayerIdPlaylistId, KodiPlaylistIndexStartitem, PlaylistItems[StartIndex][2], PlaylistItems[StartIndex][3])
-    else:
-        XbmcPlaylists[PlayerIdPlaylistId].add(PlaylistItems[StartIndex][5], PlaylistItems[StartIndex][4], index=KodiPlaylistIndexStartitem) # Path, ListItem, Index
-
     if PlayCommand in ("PlayLast", "PlayNext"):
+        for Index, PlaylistItem in enumerate(PlaylistItems):
+            if PlaylistItem[2]:
+                InsertPlaylist(PlayerIdPlaylistId, KodiPlaylistIndexStartitem + Index, PlaylistItem[2], PlaylistItem[3])
+            else:
+                XbmcPlaylists[PlayerIdPlaylistId].add(PlaylistItem[5], PlaylistItem[4], index=KodiPlaylistIndexStartitem + Index)
         return
+
+    if not PlaylistItems[StartIndex][2]:
+        XbmcPlaylists[PlayerIdPlaylistId].add(PlaylistItems[StartIndex][5], PlaylistItems[StartIndex][4], index=KodiPlaylistIndexStartitem)
 
     # Start playback
 
@@ -519,40 +572,37 @@ def PlayEmby(ItemIds, PlayCommand, StartIndex, StartPositionTicks, ServerData, A
     elif PlayerIdPlaylistId == 1 and WindowId != 12005:
         utils.ActivateWindow("fullscreenvideo", "", False, 0)
 
-    # Load Additional data from server
-    if LoadFromServer:
-        for Index, Item in enumerate(Items):
-            if not Item:
-                continue
-
-            InsertPosition = KodiPlaylistIndexStartitem + Index
-
-            if Index == StartIndex:
-                continue
-
-            PlaylistItems[Index] = load_Remoteitems(Item, PlaylistItems[Index], ServerData['ServerId'])
-
-            if PlaylistItems[Index][2]: # synced item
-                InsertPlaylist(PlayerIdPlaylistId, InsertPosition, PlaylistItems[Index][2], PlaylistItems[Index][3])
-            else:
-                XbmcPlaylists[PlayerIdPlaylistId].add(PlaylistItems[Index][5], PlaylistItems[Index][4], index=InsertPosition) # Path, ListItem, Index
-
-        del Items
+    if len(PlaylistItems) > 1:
+        # Player.Open with a database ID replaces Kodi's playlist asynchronously.
+        # Wait for that replacement before inserting the other requested entries.
+        if not wait_AVStarted():
+            return
+        KodiPlaylistIndexStartitem = GetPlaylistPosition(PlayerIdPlaylistId)
+        if KodiPlaylistIndexStartitem < 0:
+            return
+        for Index, PlaylistItem in enumerate(PlaylistItems):
+            if Index != StartIndex:
+                if not PlaylistItem[1]:
+                    PlaylistItem = load_Remoteitems(Items[str(PlaylistItem[0])], PlaylistItem, ServerData['ServerId'])
+                InsertPosition = KodiPlaylistIndexStartitem + Index
+                if PlaylistItem[2]:
+                    InsertPlaylist(PlayerIdPlaylistId, InsertPosition, PlaylistItem[2], PlaylistItem[3])
+                else:
+                    XbmcPlaylists[PlayerIdPlaylistId].add(PlaylistItem[5], PlaylistItem[4], index=InsertPosition)
 
 
-def load_Remoteitems(Item, PlaylistItem, ServerId):
+def load_Remoteitems(Item, PlaylistItem, ServerId, CacheItem=True):
     listitem.set_playback_listitem(Item, ServerId)
 
     if PlaylistItem[1]: # Kodi content
         PlaylistItem[4] = Item['ListItem']
         PlaylistItem[5] = Item['KodiFullPath']
     else:
-        if "UserData" in Item and "PlaybackPositionTicks" in Item["UserData"] and Item["UserData"]["PlaybackPositionTicks"]:
-            PlaylistItem = [Item['Id'], Item['Type'], None, None, Item['ListItem'], Item['KodiFullPath'], Item["UserData"]["PlaybackPositionTicks"]]
-        else:
-            PlaylistItem = [Item['Id'], Item['Type'], None, None, Item['ListItem'], Item['KodiFullPath'], 0]
+        Position = (Item.get('UserData') or {}).get('PlaybackPositionTicks') or 0
+        PlaylistItem = [Item['Id'], Item['Type'], None, None, Item['ListItem'], Item['KodiFullPath'], Position]
 
-        cache.add_Item(Item, ServerId)
+        if CacheItem:
+            cache.add_Item(Item, ServerId)
 
     return PlaylistItem
 

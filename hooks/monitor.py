@@ -2,6 +2,7 @@ import json
 import threading
 import xbmcvfs
 import xbmc
+import xbmcgui
 from helper import pluginmenu, utils, xmls, player, queue, cache, artworkcache
 from database import dbio
 from emby import emby, httpcache
@@ -16,7 +17,13 @@ SystemScansQueue = queue.Queue()
 
 class monitor(xbmc.Monitor):
     def onNotification(self, _sender, method, data):
-        if method.startswith(("Player.", "Playlist.")):
+        # Only decode the playback dictionaries consumed by the handlers below.
+        if method in {
+            "Player.OnPlay", "Player.OnStop", "Player.OnSeek", "Player.OnAVChange",
+            "Player.OnAVStart", "Player.OnPause", "Player.OnResume",
+            "Player.OnPropertyChanged", "Player.OnSpeedChanged",
+            "Playlist.OnAdd", "Playlist.OnRemove", "Playlist.OnClear",
+        }:
             try:
                 Event = json.loads(data) if data else {}
             except (TypeError, ValueError):
@@ -270,11 +277,22 @@ def settingschanged():
         SettingsChangedEvent.clear()
         utils.close_dialog(10146) # addoninformation
         RestartKodi = False
+        QuitKodi = False
 
         curltimeoutsPreviousValue = utils.curltimeouts
         SyncFavoritesPreviousValue = utils.SyncFavorites
         PreviousNodeLimit = utils.maxnodeitems
+        PreviousLibraryIndependentProgress = utils.LibraryIndependentProgress
         utils.InitSettings()
+
+        if PreviousLibraryIndependentProgress != utils.LibraryIndependentProgress:
+            utils.close_dialog(10140) # addonsettings
+            MessageId = 33918 if utils.LibraryIndependentProgress else 33919
+            if utils.Dialog.yesno(heading=utils.addon_name, message=utils.Translate(MessageId),
+                                  nolabel=utils.Translate(222), yeslabel=utils.Translate(33920)):
+                QuitKodi = True
+            else:
+                utils.set_settings_bool('LibraryIndependentProgress', PreviousLibraryIndependentProgress)
 
         # Timeout changed, rebuild advanced settings -> restart Kodi
         if curltimeoutsPreviousValue != utils.curltimeouts:
@@ -283,7 +301,7 @@ def settingschanged():
 
 
         # Restart Kodi
-        if RestartKodi:
+        if RestartKodi and not QuitKodi:
             utils.clear_SyncPause()
             webservice.close()
             EmbyServer_DisconnectAll()
@@ -298,6 +316,10 @@ def settingschanged():
         if PreviousNodeLimit != utils.maxnodeitems:
             for Server in list(utils.EmbyServers.values()):
                 Server.Views.update_nodes()
+
+        if QuitKodi:
+            xbmc.executebuiltin('Quit')
+            return
 
 def ServersConnect():
 
@@ -445,6 +467,7 @@ def init_widget_refresh():
 
 def ShutDown():
     global FullShutdown
+    xbmcgui.Window(10000).clearProperty(webservice.ApiVersionProperty)
 
     if FullShutdown:
         # Shutdown

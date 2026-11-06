@@ -1,5 +1,6 @@
 import threading
 import json
+import sqlite3
 import zlib
 import gzip
 import uuid
@@ -27,6 +28,7 @@ class HTTP:
         self.ResponseLock = threading.Lock()
         self.ResponseCanceled = set()
         self.RequestAbort = {}
+        self.OnPlaybackReport = None
 
     @contextmanager
     def query_connection(self, Abort, Name="CHANGES"):
@@ -77,10 +79,23 @@ class HTTP:
                     self.HttpIdleEvent.set()
 
     def socket_request(self, Method, Handler, Params, Binary, TimeoutSend, TimeoutRecv, ConnectionId, ConnectionString, CloseConnection):
+        self.Requests_Counter(True)
+        try:
+            Response = self._socket_request(Method, Handler, Params, Binary, TimeoutSend, TimeoutRecv, ConnectionId, ConnectionString, CloseConnection)
+            if Response[0] == 612:
+                self.Common.socket_close(ConnectionId)
+            return Response
+        except Exception as Error:
+            xbmc.log(f"EMBY.emby.http: Request parsing failed on {ConnectionId}: {type(Error).__name__}", xbmc.LOGERROR)
+            self.Common.socket_close(ConnectionId)
+            return noData(612, {}, Binary)
+        finally:
+            self.Requests_Counter(False)
+
+    def _socket_request(self, Method, Handler, Params, Binary, TimeoutSend, TimeoutRecv, ConnectionId, ConnectionString, CloseConnection):
         if ConnectionId not in self.Connection:
             return 601, {}, {}
 
-        self.Requests_Counter(True)
         PayloadTotal = []
         PayloadTotalLength = 0
         StatusCode = 612
@@ -145,7 +160,6 @@ class HTTP:
             StatusCodeSocket, _ = self.Common.socket_io(Request.encode("utf-8"), ConnectionId, TimeoutSend)
 
         if StatusCodeSocket:
-            self.Requests_Counter(False)
             return StatusCodeSocket, {}, ""
 
         PayloadRequestStart = 0
@@ -157,7 +171,6 @@ class HTTP:
                 IncomingData += PayloadRecv
 
                 if StatusCodeSocket or utils.SystemShutdown:
-                    self.Requests_Counter(False)
                     return StatusCodeSocket, {}, ""
 
                 continue
@@ -171,7 +184,6 @@ class HTTP:
                 StatusCode = int(StatusLine[1])
             except Exception as error: # Can happen on Emby server hard reboot
                 xbmc.log(f"EMBY.emby.http: Failed to read HTTP headers on {ConnectionId}: {type(error).__name__}", xbmc.LOGERROR)
-                self.Requests_Counter(False)
                 return 612, {}, ""
 
             IncomingDataHeaderArray = IncomingMetaData[1:]
@@ -204,7 +216,6 @@ class HTTP:
 
             if 100 <= StatusCode < 200:
                 if StatusCode == 101:
-                    self.Requests_Counter(False)
                     return StatusCode, IncomingDataHeader, IncomingDataPayload
 
                 IncomingData = IncomingDataPayload
@@ -215,7 +226,6 @@ class HTTP:
                 if IncomingDataPayload or CloseDelimited:
                     self.Common.socket_close(ConnectionId)
 
-                self.Requests_Counter(False)
 
                 if Binary:
                     return StatusCode, IncomingDataHeader, b""
@@ -314,7 +324,6 @@ class HTTP:
                     CloseDelimited = True
 
                 if StatusCodeSocket:
-                    self.Requests_Counter(False)
                     return StatusCodeSocket, {}, ""
 
                 # request additional data
@@ -331,24 +340,19 @@ class HTTP:
                         ContentSize = int(ContentSize)
 
                     if ContentRangeStart != PayloadRequestStart:
-                        self.Requests_Counter(False)
                         return 612, {}, ""
 
                     if ContentRangeEnd < ContentRangeStart:
-                        self.Requests_Counter(False)
                         return 612, {}, ""
 
                     if not ContentSizeUnknown and ContentSize <= ContentRangeEnd:
-                        self.Requests_Counter(False)
                         return 612, {}, ""
 
                     if ContentRangeEnd - ContentRangeStart + 1 != PayloadTotalLength - PayloadTotalLengthBeforeRequest:
-                        self.Requests_Counter(False)
                         return 612, {}, ""
 
                     if PayloadRequestEnd is not None:
                         if ContentRangeEnd > PayloadRequestEnd:
-                            self.Requests_Counter(False)
                             return 612, {}, ""
 
                         if ContentSizeUnknown:
@@ -378,7 +382,6 @@ class HTTP:
                             ConnectionString, ConnectionId, CloseConnection, Abort)
 
                         if StatusCodeConnect:
-                            self.Requests_Counter(False)
                             return StatusCodeConnect, {}, ""
 
                         CloseDelimited = False
@@ -400,7 +403,6 @@ class HTTP:
                         StatusCodeSocket, _ = self.Common.socket_io(f"{Method} {self.Connection[ConnectionId]['SubUrl']}{Handler} HTTP/1.1\r\n{HeaderString}Content-Length: {len(ParamsString.encode('utf-8'))}\r\n\r\n{ParamsString}".encode("utf-8"), ConnectionId, TimeoutSend)
 
                     if StatusCodeSocket:
-                        self.Requests_Counter(False)
                         return StatusCodeSocket, {}, ""
 
                     IncomingData = b""
@@ -412,7 +414,6 @@ class HTTP:
                 break
             except Exception as error: # Could happen on Emby server hard reboot
                 xbmc.log(f"EMBY.emby.http: Invalid HTTP headers on {ConnectionId}: {type(error).__name__}", xbmc.LOGERROR)
-                self.Requests_Counter(False)
                 return 612, {}, ""
 
         PayloadTotal = b''.join(PayloadTotal)
@@ -429,7 +430,6 @@ class HTTP:
                         PayloadTotal = zlib.decompress(PayloadTotal, -zlib.MAX_WBITS)
         except Exception as error:
             xbmc.log(f"EMBY.emby.http: Transfer decompression failed on {ConnectionId}: {type(error).__name__}", xbmc.LOGERROR)
-            self.Requests_Counter(False)
             return 612, {}, ""
 
         # Decompress data
@@ -444,16 +444,13 @@ class HTTP:
                     PayloadTotal = gzip.decompress(PayloadTotal)
         except Exception as error: # could happen on server overload
             xbmc.log(f"EMBY.emby.http: Response decompression failed on {ConnectionId}: {type(error).__name__}", xbmc.LOGERROR)
-            self.Requests_Counter(False)
             return 612, {}, ""
 
         if Binary:
 
-            self.Requests_Counter(False)
             return StatusCode, IncomingDataHeader, PayloadTotal
 
         isJSON = "json" in IncomingDataHeader.get("content-type", "").lower()
-        self.Requests_Counter(False)
 
         if isJSON:
             try:
@@ -556,7 +553,19 @@ class HTTP:
                 break
 
             # trigger busy function: Interrupt query if necessary, e.g. Kodi shutdown or simply wait till BusyFunction continues
-            if not BusyFunction["Object"](*BusyFunction["Params"]):
+            try:
+                Continue = BusyFunction["Object"](*BusyFunction["Params"])
+            except Exception:
+                # The worker owns the connection until it publishes its response.
+                with utils.SafeLock(self.ResponseLock):
+                    self.ResponseCanceled.add(RequestId)
+                    if self.Response[RequestId]:
+                        self.release_canceled_request(ConnectionId, RequestId)
+                if ConnectionId not in ("MAIN", "MAINFALLBACK"):
+                    self.Queues[f"QUEUEDREQUEST{ConnectionId}"].put("QUIT")
+                raise
+
+            if not Continue:
                 with utils.SafeLock(self.ResponseLock):
                     if self.Response[RequestId]:
                         ReturnData = self.Response[RequestId]
@@ -574,10 +583,12 @@ class HTTP:
             self.Queues[f"QUEUEDREQUEST{ConnectionId}"].put("QUIT")
 
             if not Canceled:
-                del self.RequestBusy[ConnectionId]
-                del self.RequestBusy[RequestId]
+                with utils.SafeLock(self.ResponseLock):
+                    del self.RequestBusy[ConnectionId]
+                    del self.RequestBusy[RequestId]
         elif not Canceled:
-            del self.RequestBusy[RequestId]
+            with utils.SafeLock(self.ResponseLock):
+                del self.RequestBusy[RequestId]
 
         return ReturnData
 
@@ -599,6 +610,16 @@ class HTTP:
             self.send_request(Method, Handler, Params, RequestHeader, Binary, ConnectionString, CloseConnection, ConnectionId, RequestId)
 
     def send_request(self, Method, Handler, Params, RequestHeader, Binary, ConnectionString, CloseConnection, ConnectionId, RequestId):
+        try:
+            self._send_request(Method, Handler, Params, RequestHeader, Binary, ConnectionString, CloseConnection, ConnectionId, RequestId)
+        except Exception as Error:
+            xbmc.log(f"EMBY.emby.http: Request failed on {ConnectionId}: {type(Error).__name__}", xbmc.LOGERROR)
+            self.Common.socket_close(ConnectionId)
+            self.Response[RequestId] = noData(612, {}, Binary)
+        finally:
+            self.finish_request(ConnectionId, RequestId)
+
+    def _send_request(self, Method, Handler, Params, RequestHeader, Binary, ConnectionString, CloseConnection, ConnectionId, RequestId):
         if not ConnectionString:
             ConnectionString = self.ServerData['ServerUrl']
 
@@ -657,6 +678,8 @@ class HTTP:
 
                 self.Connection[ConnectionId]["RequestHeader"] = RedirectedRequestHeader
 
+            # Response framing may close and remove the connection before a redirect.
+            CurrentSubUrl = self.Connection[ConnectionId]["SubUrl"]
             # Request data with different timeout settings
             if SimilarRequest:
                 # Leave time for the local API to answer before Kodi's recommendation deadline.
@@ -688,7 +711,8 @@ class HTTP:
                     self.Response[RequestId] = (StatusCode, Header, Payload)
                     break
 
-                RedirectBase = f'{ConnectionString.rstrip("/")}/{self.Connection[ConnectionId]["SubUrl"].strip("/")}/{Handler.lstrip("/")}'
+                Origin = urlsplit(ConnectionString)
+                RedirectBase = f'{Origin.scheme}://{Origin.netloc}{CurrentSubUrl}{Handler.lstrip("/")}'
 
                 if Method in ("GET", "HEAD") and Params:
                     ParamsString = ""
@@ -714,7 +738,6 @@ class HTTP:
                     break
 
                 RedirectedLocations.add(Location)
-                CurrentSubUrl = self.Connection[ConnectionId]["SubUrl"]
                 self.Common.socket_close(ConnectionId)
                 CurrentScheme, CurrentHostname, CurrentPort, _ = utils.get_url_info(ConnectionString)
                 Scheme, Hostname, Port, _ = utils.get_url_info(Location)
@@ -765,7 +788,8 @@ class HTTP:
                 utils.Dialog.notification(heading=utils.addon_name, message=Text, time=utils.displayMessage)
 
                 if self.ServerData['ServerId'] in utils.EmbyServers:
-                    utils.EmbyServers[self.ServerData['ServerId']].ServerDisconnect(True)
+                    # stop() waits for queued HTTP workers, including this caller.
+                    utils.start_thread(utils.EmbyServers[self.ServerData['ServerId']].ServerDisconnect, (True,))
 
                 self.Response[RequestId] = noData(StatusCode, {}, Binary)
                 break
@@ -826,27 +850,24 @@ class HTTP:
             self.Response[RequestId] = noData(StatusCode, {}, Binary)
             break
 
+    def finish_request(self, ConnectionId, RequestId):
         with utils.SafeLock(self.ResponseLock):
             if RequestId in self.ResponseCanceled:
-                self.ResponseCanceled.remove(RequestId)
-
-                if RequestId in self.Response:
-                    del self.Response[RequestId]
-
-                if RequestId in self.RequestBusy and self.RequestBusy[RequestId].locked():
-                    self.RequestBusy[RequestId].release()
-
-                if ConnectionId in self.RequestBusy and self.RequestBusy[ConnectionId].locked():
-                    self.RequestBusy[ConnectionId].release()
-
-                if ConnectionId not in ("MAIN", "MAINFALLBACK"):
-                    if ConnectionId in self.RequestBusy:
-                        del self.RequestBusy[ConnectionId]
-
-                if RequestId in self.RequestBusy:
-                    del self.RequestBusy[RequestId]
+                self.release_canceled_request(ConnectionId, RequestId)
             elif RequestId in self.RequestBusy and self.RequestBusy[RequestId].locked():
                 self.RequestBusy[RequestId].release()
+
+    def release_canceled_request(self, ConnectionId, RequestId):
+        # Both callers hold ResponseLock, so completion and cancellation clean up once.
+        self.ResponseCanceled.discard(RequestId)
+        self.Response.pop(RequestId, None)
+        RequestLock = self.RequestBusy.pop(RequestId, None)
+        if RequestLock and RequestLock.locked():
+            RequestLock.release()
+        if ConnectionId in self.RequestBusy and self.RequestBusy[ConnectionId].locked():
+            self.RequestBusy[ConnectionId].release()
+        if ConnectionId not in ("MAIN", "MAINFALLBACK"):
+            self.RequestBusy.pop(ConnectionId, None)
 
     def update_header(self, ConnectionId):
         if 'X-Emby-Token' not in self.Connection[ConnectionId]["RequestHeader"] and self.ServerData['AccessToken'] and self.ServerData['UserId']:
@@ -880,6 +901,12 @@ class HTTP:
                     self.disable_thread("ASYNC")
                     return
 
+    def notify_playback_report(self, Command, Accepted=False):
+        try:
+            self.OnPlaybackReport(Command[1], Command[2], Accepted)
+        except (OSError, RuntimeError, sqlite3.Error) as Error:
+            xbmc.log(f"EMBY.emby.http: Failed to update movie resume source: {type(Error).__name__}", xbmc.LOGWARNING)
+
     def async_commands_worker(self, Command, Priority):
         if Command[0] == "QUIT":
             return True
@@ -896,10 +923,17 @@ class HTTP:
 
                 self.update_header("ASYNC")
 
+                PlaybackReport = self.OnPlaybackReport and Command[1] in ("Sessions/Playing", "Sessions/Playing/Progress", "Sessions/Playing/Stopped")
+                if PlaybackReport:
+                    self.notify_playback_report(Command)
+
                 if Priority:
                     StatusCode, _, _ = self.socket_request(Command[0], Command[1], Command[2], True, 3, 3, "ASYNC",  self.ServerData['ServerUrl'], False)
                 else:
                     StatusCode, _, _ = self.socket_request(Command[0], Command[1], Command[2], True, 1, 0.1, "ASYNC",  self.ServerData['ServerUrl'], False)
+
+                if PlaybackReport and Command[1] == "Sessions/Playing/Stopped" and 200 <= StatusCode < 300:
+                    self.notify_playback_report(Command, Accepted=True)
 
                 if StatusCode == 601: # quit
                     return True

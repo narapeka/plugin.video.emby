@@ -1,5 +1,5 @@
 import threading
-from collections import deque
+from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import ExitStack
 from helper import utils, queue, cache, copy, paging
@@ -29,6 +29,10 @@ EmbyFields = {
 }
 
 
+class ItemQueryError(RuntimeError):
+    """A sync query failed; its pending work must be retained."""
+
+
 class _ChangeItems:
     """Keep only startup sync inputs, not complete response objects."""
     def __init__(self, MediaType, Abort):
@@ -48,7 +52,7 @@ class _ChangeItems:
                 Change = {'Id': Item['Id'], 'Type': Item['Type']}
 
                 if Item['Type'] in utils.FavoriteTypes:
-                    Change['UserData'] = Item['UserData']
+                    Change['UserData'] = Item.get('UserData') or {}
 
                 self.Items.append(Change)
 
@@ -71,50 +75,95 @@ class API:
             self.ProcessProgressCondition.notify_all()
 
 
-    def get_Items_Ids(self, Ids, MediaTypes, Dynamic, Basic, ProcessProgressId, LibraryId, Extra, BusyFunction, UserData):
-        # Load Item from cache
+    def get_Items_Ids(self, Ids, MediaTypes, Dynamic, Basic, ProcessProgressId, LibraryId, Extra, BusyFunction, UserData, Strict=False):
+        if utils.SystemShutdown:
+            if Strict:
+                raise ItemQueryError("Item query cancelled")
+            return
+        RequestedIds = Ids.copy()
+        Found = {}
+        # Merge cached and fetched items in request order, including repeated IDs.
         if Dynamic:
-            for Index, Id in reversed(list(enumerate(Ids))):
+            for Id in dict.fromkeys(Ids):
                 ItemCache = cache.get_ItemByEmbyId(Id, self.ServerData['ServerId'])
-
                 if ItemCache:
-                    del Ids[Index]
-                    yield ItemCache
-
-            if not Ids: # Ids are removed in async_get_Items_Ids thread
-                return
+                    Found[Id] = ItemCache
+            Ids = list(dict.fromkeys(Id for Id in Ids if Id not in Found))
 
         ItemsQueue = queue.Queue()
 
         for MediaType in MediaTypes:
             if not Ids: # Ids are removed in async_get_Items_Ids thread
-                return
+                break
 
-            utils.start_thread(self.async_get_Items_Ids, (ItemsQueue, Ids.copy(), Dynamic, Basic, ProcessProgressId, LibraryId, MediaType, Extra, BusyFunction, UserData))
+            PendingIds = Counter(Ids) if Strict else None
+            utils.start_thread(self.produce_Items_Ids, (ItemsQueue, Ids.copy(), Dynamic, Basic, ProcessProgressId, LibraryId, MediaType, Extra, BusyFunction, UserData, Strict))
 
             while True:
-                Items = ItemsQueue.getall()
+                Items = ItemsQueue.getall(lambda: utils.SystemShutdown)
 
                 if utils.SystemShutdown:
+                    if Strict:
+                        raise ItemQueryError("Item query cancelled")
                     return
 
                 if not Items:
                     break
 
-                if Items[-1] == "QUIT":
-                    yield from Items[:-1]
-                    del Items
+                Finished = False
+                for Item in Items:
+                    if isinstance(Item, ItemQueryError):
+                        raise Item
+                    if Item == "QUIT":
+                        Finished = True
+                        break
+                    if Strict and PendingIds[Item['Id']]:
+                        PendingIds[Item['Id']] -= 1
+                    if Dynamic:
+                        Found[Item['Id']] = Item
+                    else:
+                        yield Item
+                if Finished:
                     break
+            if Strict:
+                Remaining = []
+                for Id in Ids:
+                    if PendingIds[Id]:
+                        Remaining.append(Id)
+                        PendingIds[Id] -= 1
+                Ids[:] = Remaining
+            elif Dynamic:
+                Ids = [Id for Id in Ids if Id not in Found]
 
-                yield from Items
-                del Items
+        if Dynamic:
+            for Id in RequestedIds:
+                if Id in Found:
+                    yield Found[Id]
 
-    def async_get_Items_Ids(self, ItemsQueue, Ids, Dynamic, Basic, ProcessProgressId, LibraryId, MediaType, Extra, BusyFunction, UserData):
+    def produce_Items_Ids(self, ItemsQueue, *Args):
+        try:
+            self.async_get_Items_Ids(ItemsQueue, *Args)
+        except Exception as Error:
+            # Deliver failure to the consumer instead of leaving it waiting on a dead producer.
+            ItemsQueue.put(ItemQueryError(str(Error)))
+
+    def request_items(self, Request, Params, BusyFunction, Strict=False, ConnectionId=""):
+        Status, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, ConnectionId)
+        if Strict:
+            if Status == 204:
+                return {"Items": []}
+            if Status != 200 or not isinstance(Payload, dict) or not isinstance(Payload.get("Items"), list):
+                raise ItemQueryError(f"Item query failed: {Status}")
+            if any(not isinstance(Item, dict) or not isinstance(Item.get('Id'), str) or not Item['Id'] or not isinstance(Item.get('Type'), str) or not Item['Type'] for Item in Payload['Items']):
+                raise ItemQueryError("Invalid item query response")
+        return Payload
+
+    def async_get_Items_Ids(self, ItemsQueue, Ids, Dynamic, Basic, ProcessProgressId, LibraryId, MediaType, Extra, BusyFunction, UserData, Strict=False):
         CounterFound = 0
-        ItemsSorted = ()
-        IdsBackup = ()
+        ItemsSorted = {}
+        IdsBackup = Ids.copy()
+        RequestedIds = set(Ids)
         LibrarySyncedIds = ()
-        IdsTotal = len(Ids)
 
         if MediaType == "All":
             Params = {'EnableTotalRecordCount': False, 'Recursive': True, 'Fields': self.get_Fields(MediaType, Basic, Dynamic, UserData)} # Workaround: Emby server doesn not respect IncludeItemTypes=Video when it's a "special"
@@ -141,7 +190,7 @@ class API:
             # Query content
             if not Dynamic:
                 if LibraryId == "OneShot": # Items may exist
-                    _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
+                    Payload = self.request_items(Request, Params, BusyFunction, Strict)
 
                     if 'Items' in Payload:
                         for Item in Payload['Items']:
@@ -150,7 +199,7 @@ class API:
 
                     Ids = []
                 elif LibraryId == "SingleId": # Items must exists
-                    _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
+                    Payload = self.request_items(Request, Params, BusyFunction, Strict)
 
                     if 'Items' in Payload:
                         for Item in Payload['Items']:
@@ -161,7 +210,7 @@ class API:
                             ItemsQueue.put(Item)
                             CounterFound += 1
                 elif LibraryId and LibraryId.lower() != "unknown": # Kodi start updates, Items must exists
-                    _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
+                    Payload = self.request_items(Request, Params, BusyFunction, Strict)
 
                     if 'Items' in Payload:
                         ReceivedIds = {}
@@ -199,7 +248,7 @@ class API:
                             LibrarySyncedIds = embydb.get_LibraryIds_by_EmbyIds(Ids)
                             dbio.DBCloseRO(self.ServerData['ServerId'], "Realtimesync_Subcontent")
 
-                        _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
+                        Payload = self.request_items(Request, Params, BusyFunction, Strict)
 
                         if 'Items' in Payload:
                             for Item in Payload['Items']: # Check if content is an synced content update
@@ -215,19 +264,15 @@ class API:
                                                 CounterFound += 1
                     else:
                         for LibrarySyncedId in self.LibrarySyncedNames:
-                            CounterFoundSubItems = 0
-
                             if str(LibrarySyncedId) not in ("999999999",):
                                 Params.update({'ParentId': LibrarySyncedId})
                             else:
                                 if MediaType != "Person":
                                     continue
 
-                            _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
+                            Payload = self.request_items(Request, Params, BusyFunction, Strict)
 
                             if 'Items' in Payload:
-                                CounterFoundSubItems += len(Payload['Items'])
-
                                 for Item in Payload['Items']:
                                     if Item['Type'] == MediaType:
                                         Item['LibraryId'] = LibrarySyncedId
@@ -238,10 +283,10 @@ class API:
                                         ItemsQueue.put(Item)
                                         CounterFound += 1
 
-                            if CounterFoundSubItems == len(Ids) or utils.SystemShutdown: # All data received, no need to check additional libraries
+                            if not Ids or utils.SystemShutdown: # Stop only after every requested ID has been resolved.
                                 break
             else: # Resolve requested items for remote playback or generated ListItems
-                _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
+                Payload = self.request_items(Request, Params, BusyFunction, Strict)
 
                 # Emby server bug, MusicArtist, MusicAlbum, Audio queries on mixed content libraries are not accepted, wen userdate are request. Try workaround
                 if 'Items' in Payload and not Payload['Items']:
@@ -249,23 +294,16 @@ class API:
                         Request = "Items"
 
                         if "Fields" in Params:
-                            Params["Fields"].replace("UserDataLast", "").replace("UserDataPlayCount", "").replace("PlayedDate", "")
+                            Params["Fields"] = ",".join(Field for Field in Params["Fields"].split(",") if Field not in ("UserDataLastPlayedDate", "UserDataPlayCount", "PlayedDate"))
 
-                        _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
+                        Payload = self.request_items(Request, Params, BusyFunction, Strict)
 
                 if 'Items' in Payload and Payload['Items']:
-                    # Restore item order as requsted -> Emby sorts by ascending Ids
-                    if not IdsBackup:
-                        ItemsSorted = IdsTotal * [()] # pre allocate memory
-                        IdsBackup = Ids.copy()
-
                     for Item in Payload['Items']:
-                        if MediaType in ('All', Item['Type']):
-                            if Item['Id'] in IdsBackup:
-                                ItemsSorted[IdsBackup.index(Item['Id'])] = Item
+                        if MediaType in ('All', Item['Type']) and Item['Id'] in RequestedIds:
+                            ItemsSorted[Item['Id']] = Item
 
-                                if Item['Id'] in Ids:
-                                    del Ids[Ids.index(Item['Id'])]
+                    Ids[:] = [Id for Id in Ids if Id not in ItemsSorted]
 
                     CounterFound += len(Payload['Items'])
 
@@ -284,11 +322,7 @@ class API:
 
         # Sorted items -> Emby sorts by ascending Ids
         if ItemsSorted:
-            # Add items into queue
-            while () in ItemsSorted:  # Remove empty
-                ItemsSorted.remove(())
-
-            ItemsQueue.put(ItemsSorted)
+            ItemsQueue.put([ItemsSorted[Id] for Id in IdsBackup if Id in ItemsSorted])
             del ItemsSorted
 
         ItemsQueue.put("QUIT")
@@ -306,6 +340,17 @@ class API:
         return True
 
     def get_Items(self, ParentId, MediaTypes, Basic, Extra, ProcessProgressId, BusyFunction, UserData):
+        if Extra and Extra.get("PlaylistItems"):
+            # The playlist endpoint returns entries in playlist order, including repeats.
+            Params = {'UserId': self.ServerData['UserId'], 'Fields': self.get_Fields("All", Basic, False, UserData),
+                      'EnableUserData': UserData, 'Limit': Extra.get("Limit", paging.get_limit("Playlist")), 'StartIndex': 0}
+            while not utils.SystemShutdown:
+                Items = self.request_items(f"Playlists/{ParentId}/Items", Params, BusyFunction, True)['Items']
+                yield from (Item for Item in Items if Item['Type'] in MediaTypes)
+                if len(Items) < Params['Limit']:
+                    return
+                Params['StartIndex'] += len(Items)
+            raise ItemQueryError("Playlist query cancelled")
 
         ItemsQueue = queue.Queue()
 
@@ -318,20 +363,22 @@ class API:
             RequestLocal, Params = self.get_Items_Request(ParentId, MediaType, Basic, Extra, UserData)
             CustomLimit = bool(Extra and "Limit" in Extra)
 
-            utils.start_thread(self.async_get_Items, (RequestLocal, ItemsQueue, Params, ProcessProgressId, CustomLimit, BusyFunction))
+            utils.start_thread(self.produce_Items, (RequestLocal, ItemsQueue, Params, ProcessProgressId, CustomLimit, BusyFunction))
             ExitLoop = False
 
             while True:
-                Items = ItemsQueue.getall()
+                Items = ItemsQueue.getall(lambda: utils.SystemShutdown)
 
                 if utils.SystemShutdown:
-                    return
+                    raise ItemQueryError("Item query cancelled")
 
                 if not Items:
                     break
 
                 # Bugs in Emby server might send wrong data (e.g. playlists libraries, MusicGenre metadata wrong)
                 for Item in Items:
+                    if isinstance(Item, ItemQueryError):
+                        raise Item
                     if Item == "QUIT":
                         ExitLoop = True
                         break
@@ -346,6 +393,12 @@ class API:
                 if ExitLoop:
                     break
 
+
+    def produce_Items(self, Request, ItemsQueue, *Args):
+        try:
+            self.async_get_Items(Request, ItemsQueue, *Args)
+        except Exception as Error:
+            ItemsQueue.put(ItemQueryError(str(Error)))
 
     def get_Items_Request(self, ParentId, MediaType, Basic, Extra, UserData):
         Request = f"Users/{self.ServerData['UserId']}/Items" if UserData else "Items"
@@ -463,13 +516,7 @@ class API:
                 ContentSupported = Params["ContentSupported"]
                 del Params["ContentSupported"]
 
-            StatusCode, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, ConnectionId)
-
-            if ConnectionId:  # Startup discovery must not interpret a failed page as no changes.
-                if StatusCode == 204:
-                    Payload = {'Items': []}
-                elif StatusCode != 200 or not isinstance(Payload, dict) or not isinstance(Payload.get('Items'), list):
-                    raise RuntimeError(f"Change query failed: {StatusCode} / {Params.get('IncludeItemTypes')}")
+            Payload = self.request_items(Request, Params, BusyFunction, True, ConnectionId)
 
             # Emby server bug, MusicArtist, MusicAlbum, Audio queries on mixed content libraries are not accepted, when userdata are requested. Try workaround
             if 'Items' in Payload and not Payload['Items'] and not "MinDateLastSavedForUser" in Params:
@@ -477,9 +524,9 @@ class API:
                     Request = "Items"
 
                     if "Fields" in Params:
-                        Params["Fields"].replace("UserDataLast", "").replace("UserDataPlayCount", "").replace("PlayedDate", "")
+                        Params["Fields"] = ",".join(Field for Field in Params["Fields"].split(",") if Field not in ("UserDataLastPlayedDate", "UserDataPlayCount", "PlayedDate"))
 
-                    _, _, Payload = self.http.request("GET", Request, Params, {}, False, "", BusyFunction, "")
+                    Payload = self.request_items(Request, Params, BusyFunction, True, ConnectionId)
 
             # Special filters -> Emby's NameLessThan and NameStartsWith filter are too slow, do it manually
             if StartsWith:
@@ -532,7 +579,7 @@ class API:
 
                     for Item in Items:
                         ParamsCheck["ParentId"] = Item['Id']
-                        _, _, PayloadCheck = self.http.request("GET", "Items", ParamsCheck, {}, False, "", BusyFunction, "")
+                        PayloadCheck = self.request_items("Items", ParamsCheck, BusyFunction, True, ConnectionId)
 
                         if 'Items' in PayloadCheck and PayloadCheck['Items']:
                             Payload['Items'].append(Item)
@@ -574,7 +621,7 @@ class API:
 
             Index += Limit
 
-    def get_Item(self, Id, MediaTypes, Dynamic, Basic, UserData):
+    def get_Item(self, Id, MediaTypes, Dynamic, Basic, UserData, Strict=False):
         # Load Item from cache
         if Dynamic:
             ItemCache = cache.get_ItemByEmbyId(Id, self.ServerData['ServerId'])
@@ -585,7 +632,7 @@ class API:
         ItemsQueue = queue.Queue()
 
         for MediaType in MediaTypes:
-            self.async_get_Items_Ids(ItemsQueue, [str(Id)], Dynamic, Basic, "", "SingleId", MediaType, {}, None, UserData)
+            self.async_get_Items_Ids(ItemsQueue, [str(Id)], Dynamic, Basic, "", "SingleId", MediaType, {}, None, UserData, Strict)
             Item = ItemsQueue.get()
 
             if Item != "QUIT":
@@ -631,7 +678,11 @@ class API:
 
 
     def get_sync_queue(self, date):
-        _, _, Payload = self.http.request("GET", f"Emby.Kodi.SyncQueue/{self.ServerData['UserId']}/GetItems", {'LastUpdateDT': date}, {}, False, "", None, "")
+        Status, _, Payload = self.http.request("GET", f"Emby.Kodi.SyncQueue/{self.ServerData['UserId']}/GetItems", {'LastUpdateDT': date}, {}, False, "", None, "")
+        if Status == 404:  # The Kodi Companion server plugin is optional.
+            return {"ItemsRemoved": []}
+        if Status != 200 or not isinstance(Payload, dict) or not isinstance(Payload.get("ItemsRemoved"), list):
+            raise ItemQueryError(f"Deletion queue query failed: {Status}")
         return Payload
 
     def set_progress(self, Id, Progress, PlayCount):

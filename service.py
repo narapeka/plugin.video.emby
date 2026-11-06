@@ -18,9 +18,12 @@ def sleep():
 if not Param:
     from hooks import webservice
 
-    if webservice.start():
-        import hooks.monitor
-        hooks.monitor.StartUp()
+    try:
+        if webservice.start():
+            import hooks.monitor
+            hooks.monitor.StartUp()
+    finally:
+        webservice.close()
 else:
     import socket
 

@@ -3,7 +3,7 @@
 QUALITY = 90
 PROFILES = {
     "poster": (480, 720, "jpg"),
-    "person": (480, 720, "jpg"),
+    "person": (240, 360, "jpg"),
     "square": (720, 720, "jpg"),
     "library": (1920, 1080, "jpg"),
     "landscape": (960, 540, "jpg"),

@@ -1,5 +1,7 @@
 import threading
 import os
+import tempfile
+import shutil
 import json
 import re
 from urllib.parse import quote, unquote, urlsplit
@@ -43,7 +45,6 @@ ItemSkipUpdate = []
 MinimumVersion = "12.5.0"
 EmbyServerVersionResync = "4.9.0.25"
 device_name = "Kodi"
-resumeJumpBack = 0
 displayMessage = 1000
 startupDelay = 0
 DEFAULT_CURL_TIMEOUT = 5
@@ -76,6 +77,7 @@ SyncPauseCondition = threading.Condition(threading.Lock())
 EmbyServerOnlineCondition = threading.Condition(threading.Lock())
 WidgetRefresh = {"video": False, "music": False}
 SyncFavorites = False
+LibraryIndependentProgress = False
 Dialog = xbmcgui.Dialog()
 WizardCompleted = True
 sslverify = False
@@ -246,8 +248,11 @@ def RunSyncJobsAsync():
             SyncLock = True
 
         for EmbyServer in list(EmbyServers.values()):
-            if not EmbyServer.library.Worker_is_paused("RunSyncJobsAsync"):
-                EmbyServer.library.RunJobs(True, False)
+            try:
+                if not EmbyServer.library.Worker_is_paused("RunSyncJobsAsync"):
+                    EmbyServer.library.RunJobs(True, False)
+            except Exception as Error:
+                xbmc.log(f"EMBY.helper.utils: Sync job failed: {type(Error).__name__}", xbmc.LOGERROR)
 
 def update_SyncPause(Key, Value):
     with SafeLock(SyncPauseCondition):
@@ -639,6 +644,74 @@ def writeFile(Path, Data):
         xbmc.log(f"EMBY.helper.utils: writeFile ({Path}): {Error}", xbmc.LOGWARNING)
 
 
+class PlaylistFileTransaction:
+    """Keep the original files until their Emby database transaction completes."""
+    def __init__(self):
+        self.Originals = {}
+
+    def write(self, Path, Data):
+        Filename = xbmcvfs.translatePath(Path)
+        if Filename not in self.Originals:
+            Backup = None
+            try:
+                Source = open(Filename, 'rb')
+            except FileNotFoundError:
+                Source = None
+            if Source is not None:
+                try:
+                    with Source, tempfile.NamedTemporaryFile(dir=os.path.dirname(Filename), prefix=".emby-rollback-", suffix=".tmp", delete=False) as File:
+                        Backup = File.name
+                        shutil.copyfileobj(Source, File)
+                except Exception:
+                    if Backup:
+                        os.unlink(Backup)
+                    raise
+            self.Originals[Filename] = [Backup, False]
+        writeFileAtomic(Path, Data)
+        self.Originals[Filename][1] = True
+
+    def close(self, Commit):
+        Error = None
+        for Filename, (Backup, Replaced) in list(self.Originals.items()):
+            try:
+                if not Commit and Replaced:
+                    if Backup:
+                        os.replace(Backup, Filename)
+                    else:
+                        try:
+                            os.unlink(Filename)
+                        except FileNotFoundError:
+                            pass
+                elif Backup:
+                    os.unlink(Backup)
+                del self.Originals[Filename]
+            except OSError as Failure:
+                # Keep a failed restore's backup and try the remaining files.
+                xbmc.log(f"EMBY.helper.utils: Playlist file recovery/cleanup failed: {Filename}: {Failure}", xbmc.LOGERROR)
+                Error = Error or Failure
+        if Error:
+            raise Error
+
+
+def writeFileAtomic(Path, Data):
+    """Replace a local profile file only after the new contents are fully written."""
+    Filename = xbmcvfs.translatePath(Path)
+    Directory = os.path.dirname(Filename)
+    os.makedirs(Directory, exist_ok=True)
+    Temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=Directory, prefix=".emby-", suffix=".tmp", delete=False) as File:
+            Temporary = File.name
+            if File.write(Data) != len(Data):
+                raise OSError("Incomplete playlist write")
+            File.flush()
+            os.fsync(File.fileno())
+        os.replace(Temporary, Filename)
+    finally:
+        if Temporary and os.path.exists(Temporary):
+            os.unlink(Temporary)
+
+
 def currenttime():
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
@@ -848,7 +921,6 @@ def InitSettings():
     global device_name
     global displayMessage
 
-    load_settings('resumeJumpBack')
     load_settings('MinimumSetup')
     load_settings_int('displayMessage')
     load_settings_int('startupDelay')
@@ -874,6 +946,7 @@ def InitSettings():
     load_settings_bool('websocketenabled')
     load_settings_bool('startsyncenabled')
     load_settings_bool('SyncFavorites')
+    load_settings_bool('LibraryIndependentProgress')
     load_settings_bool('PauseSyncDuringPlaybackStateChange')
 
     CustomName = Addon.getSetting('customDeviceName').strip()
@@ -1117,6 +1190,8 @@ mkDir(FolderUserdataThumbnails)
 
 # Init settings
 InitSettings()
+# Keep the current resume policy until the add-on starts again.
+MovieResumeOwnerEnabled = not LibraryIndependentProgress
 
 # Find Kodi's database files
 DatabaseFiles = {'texture': "", 'texture-version': 0, 'music': "", 'music-version': 0, 'video': "", 'video-version': 0}

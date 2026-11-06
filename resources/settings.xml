@@ -44,6 +44,12 @@
                     <default>true</default>
                     <control type="toggle"/>
                 </setting>
+
+                <setting id="LibraryIndependentProgress" label="33916" type="boolean" help="33917">
+                    <level>1</level>
+                    <default>false</default>
+                    <control type="toggle"/>
+                </setting>
             </group>
             <group id="3" label="33766" help="33767">
                 <setting label="33843" id="PauseSyncDuringPlayback" type="boolean" help="33767">
@@ -72,7 +78,14 @@
             </group>
         </category>
         <category id="playback" label="30516" help="">
-            <group id="1" label="33419">
+            <group id="1" label="33909">
+                <setting id="autoSelectHighestPlaybackResolution" type="boolean" label="33692" help="33693">
+                    <level>1</level>
+                    <default>false</default>
+                    <control type="toggle"/>
+                </setting>
+            </group>
+            <group id="2" label="33419">
                 <setting label="33417" id="enableSkipIntro" type="boolean" help="">
                     <level>1</level>
                     <default>false</default>
@@ -105,27 +118,6 @@
                             <condition operator="is" setting="enableSkipCredits">true</condition>
                         </dependency>
                     </dependencies>
-                </setting>
-            </group>
-            <group id="2" label="33909">
-                <setting id="resumeJumpBack" type="integer" label="30521" help="33320">
-                    <level>1</level>
-                    <default>10</default>
-                    <constraints>
-                        <minimum>5</minimum>
-                        <step>1</step>
-                        <maximum>60</maximum>
-                    </constraints>
-                    <control type="slider" format="integer">
-                        <popup>false</popup>
-                    </control>
-                </setting>
-            </group>
-            <group id="3">
-                <setting id="autoSelectHighestPlaybackResolution" type="boolean" label="33692" help="33693">
-                    <level>1</level>
-                    <default>false</default>
-                    <control type="toggle"/>
                 </setting>
             </group>
         </category>

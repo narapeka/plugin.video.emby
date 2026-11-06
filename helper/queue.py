@@ -22,9 +22,11 @@ class Queue:
 
                 self.ThreadCondition.wait(timeout=0.1)
 
-    def getall(self):
+    def getall(self, Abort=None):
         while True:
             with self.ThreadCondition:
+                if Abort and Abort():
+                    return []
                 if self.ItemsQueue:
                     items = list(self.ItemsQueue)
                     self.ItemsQueue.clear()

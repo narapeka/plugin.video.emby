@@ -1,7 +1,7 @@
 from urllib.parse import urlencode
 
 from emby.views import PLUGIN_PATH
-from helper import utils
+from helper import utils, paging
 from . import common, audio, musicvideo, tag
 
 
@@ -24,37 +24,31 @@ class Playlist:
             return False
 
         common.set_primary_artwork(Item, self.Library.ServerData['ServerId'])
-        ItemFilename = utils.valid_Filename(Item['Name'])
-        utils.delFile(f"{utils.PlaylistPathMusic}emby_{ItemFilename}_audio.m3u")
-        utils.delFile(f"{utils.PlaylistPathVideo}emby_{ItemFilename}_video.m3u")
+        ItemFilename = utils.valid_Filename(f"{self.Library.ServerData['ServerId']}_{Item['Id']}")
         TrackNumber = {"Audio": 0, "MusicVideo": 0}
         M3UPlaylist = {"Audio": "", "Video": ""}
         KodiPlaylistId = {"Audio": "", "Video": ""}
-        EmbyRemoveIds = set()
-        EmbyLinkedId = {"Audio": (), "Video": (), "Movie": (), "Episode": (), "MusicVideo": ()}
-        PlaylistItems = self.Library.API.get_Items(Item['Id'], ("Audio", "Video", "Movie", "Episode", "MusicVideo"), False, {}, "", None, True)
-
-        # Get previously links EmbyItemIds
-        if Item['UpdateItem']:
-            for Index in range(5):
-                EmbyExistingIds = Item['EmbyLinkedId'].split(";")
-
-                if EmbyExistingIds[Index]:
-                    EmbyRemoveIds = EmbyRemoveIds.union(EmbyExistingIds[Index].split(","))
+        EmbyLinkedId = {"Audio": [], "Video": [], "Movie": [], "Episode": [], "MusicVideo": []}
+        VideoOrder = []
+        # Fetch every page before altering existing files or membership.
+        Query = {"PlaylistItems": True}
+        if Item.get('MediaType') == "Audio":
+            Query['Limit'] = paging.get_limit("Audio")
+        PlaylistItems = list(self.Library.API.get_Items(Item['Id'], tuple(EmbyLinkedId), False, Query, "", None, True))
+        PreviousMembers = self.synced_members(Item['EmbyLinkedId'])
+        PreviousAudio = set(filter(None, (Item['EmbyLinkedId'] or "").partition(";")[0].split(",")))
 
         for PlaylistItem in PlaylistItems:
-            common.set_RunTimeTicks(PlaylistItem)
-            common.set_streams(PlaylistItem)
-            PlaylistItemType = PlaylistItem.get('Type', "")
-
-            if not PlaylistItemType:
+            PlaylistItemType = PlaylistItem['Type']
+            PlaylistItemId = str(PlaylistItem['Id'])
+            EmbyLinkedId[PlaylistItemType].append(PlaylistItemId)
+            if PlaylistItemType != "Audio":
+                VideoOrder.append(PlaylistItemId)
+            if PlaylistItemType not in ("Audio", "MusicVideo"):
                 continue
 
-            EmbyLinkedId[PlaylistItemType] += (str(PlaylistItem['Id']),)
-
-            if str(PlaylistItem['Id']) in EmbyRemoveIds:
-                EmbyRemoveIds.remove(str(PlaylistItem['Id']))
-
+            common.set_RunTimeTicks(PlaylistItem)
+            common.set_streams(PlaylistItem)
             PlaylistItem['ParentIndexNumber'] = 0
             PlaylistItem['LibraryId'] = Item['LibraryId']
             common.set_common(PlaylistItem, self.Library.ServerData['ServerId'], True, IncrementalSync)
@@ -64,9 +58,6 @@ class Playlist:
                 TrackNumber["Audio"] += 1
                 PlaylistItem['IndexNumber'] = TrackNumber["Audio"]
                 self.AudioObject.change(PlaylistItem, IncrementalSync, Item['Id'])
-
-                if "KodiItemIdNew" in PlaylistItem:
-                    self.SQLs["music"].add_song_tag(PlaylistItem['KodiItemIdNew'], f"EmbyPlaylistId-{Item['Id']}")
 
                 M3UPlaylist["Audio"] += f"#EXTINF:-1,{PlaylistItem['Name']}\n"
                 M3UPlaylist["Audio"] += f"{PlaylistItem['KodiFullPath']}\n"
@@ -85,30 +76,52 @@ class Playlist:
         if M3UPlaylist["Audio"]:
             M3UData = f'#EXTCPlayListM3U::M3U\n{M3UPlaylist["Audio"]}'
             KodiPlaylistId["Audio"] = f"emby_{ItemFilename}_audio"
-            utils.mkDir(utils.PlaylistPathMusic)
-            utils.writeFile(f'{utils.PlaylistPathMusic}{KodiPlaylistId["Audio"]}.m3u', M3UData.encode("utf-8"))
+            self.SQLs["emby"].write_playlist_file(f'{utils.PlaylistPathMusic}{KodiPlaylistId["Audio"]}.m3u', M3UData.encode("utf-8"))
 
         if M3UPlaylist["Video"]:
             M3UData = f'#EXTCPlayListM3U::M3U\n{M3UPlaylist["Video"]}'
             KodiPlaylistId["Video"] = f"emby_{ItemFilename}_video"
-            utils.mkDir(utils.PlaylistPathVideo)
-            utils.writeFile(f'{utils.PlaylistPathVideo}{KodiPlaylistId["Video"]}.m3u', M3UData.encode("utf-8"))
+            self.SQLs["emby"].write_playlist_file(f'{utils.PlaylistPathVideo}{KodiPlaylistId["Video"]}.m3u', M3UData.encode("utf-8"))
 
-        EmbyLinkedId["Audio"] = ",".join(EmbyLinkedId["Audio"])
-        EmbyLinkedId["Video"] = ",".join(EmbyLinkedId["Video"])
-        EmbyLinkedId["Movie"] = ",".join(EmbyLinkedId["Movie"])
-        EmbyLinkedId["Episode"] = ",".join(EmbyLinkedId["Episode"])
-        EmbyLinkedId["MusicVideo"] = ",".join(EmbyLinkedId["MusicVideo"])
         Item['KodiItemId'] = f'{KodiPlaylistId["Audio"]};{KodiPlaylistId["Video"]}'
-        Item['EmbyLinkedId'] = f'{EmbyLinkedId["Audio"]};{EmbyLinkedId["Video"]};{EmbyLinkedId["Movie"]};{EmbyLinkedId["Episode"]};{EmbyLinkedId["MusicVideo"]}'
+        Item['EmbyLinkedId'] = ";".join(",".join(Group) for Group in (*EmbyLinkedId.values(), VideoOrder))
         self.SQLs["emby"].add_reference_playlist(Item['Id'], Item['LibraryId'], Item['KodiItemId'], Item['KodiArtwork']['favourite'], Item['EmbyLinkedId'], Item['Name'])
         self.Library.Views.update_playlist_nodes(Item['Id'], Item['Name'], Item['KodiArtwork']['favourite'], Item['EmbyLinkedId'])
 
-        if EmbyRemoveIds:
-            for EmbyRemoveId in EmbyRemoveIds:
-                self.SQLs["emby"].add_RemoveItem(EmbyRemoveId, Item['LibraryId'])
+        CurrentMembers = self.synced_members(Item['EmbyLinkedId'])
+        AddedMembers = CurrentMembers - PreviousMembers
+        if AddedMembers:
+            self.SQLs["emby"].cancel_playlist_member_removals(Item['LibraryId'], AddedMembers)
+        self.remove_audio_tags(PreviousAudio.difference(EmbyLinkedId["Audio"]), Item['LibraryId'], Item['Id'])
+        self.remove_unused_members(PreviousMembers - CurrentMembers, Item['LibraryId'])
+
+        # Keep old reference targets until the enclosing sync transaction commits.
+        if not M3UPlaylist["Audio"]:
+            self.SQLs["emby"].queue_playlist_file_delete(Item['Id'], f"emby_{ItemFilename}_audio", f"{utils.PlaylistPathMusic}emby_{ItemFilename}_audio.m3u")
+        if not M3UPlaylist["Video"]:
+            self.SQLs["emby"].queue_playlist_file_delete(Item['Id'], f"emby_{ItemFilename}_video", f"{utils.PlaylistPathVideo}emby_{ItemFilename}_video.m3u")
 
         return False
+
+    @staticmethod
+    def synced_members(LinkedIds):
+        Groups = (LinkedIds or ";;;;").split(";")
+        return set(filter(None, (Groups[0] + "," + Groups[4]).split(",")))
+
+    def remove_audio_tags(self, EmbyIds, LibraryId, PlaylistId):
+        for EmbyId in EmbyIds:
+            LibraryIds, KodiIds, _, _ = self.SQLs["emby"].get_KodiIds_LibraryIds_from_ContentItem(EmbyId, "Audio")
+            for SongLibraryId, KodiId in zip(common.get_Ids_SingleContent(LibraryIds), common.get_Ids_SingleContent(KodiIds)):
+                if SongLibraryId == LibraryId:
+                    self.SQLs["music"].remove_song_tag(KodiId, f"EmbyPlaylistId-{PlaylistId}")
+
+    def remove_unused_members(self, Members, LibraryId):
+        if not Members:
+            return
+        for LinkedIds in self.SQLs["emby"].get_library_playlists(LibraryId):
+            Members.difference_update(self.synced_members(LinkedIds))
+        for EmbyId in Members:
+            self.SQLs["emby"].add_RemoveItem(EmbyId, LibraryId)
 
     def remove(self, Item, IncrementalSync):
         if not common.verify_KodiIds(Item, IncrementalSync, False):
@@ -118,19 +131,25 @@ class Playlist:
         self.Library.Views.delete_playlist_nodes(Item['Id'])
         KodiItemIds = Item['KodiItemId'].split(";")
 
-        if KodiItemIds[0]: # Audio
-            utils.delFile(f"{utils.PlaylistPathMusic}{KodiItemIds[0]}.m3u")
+        OwnedName = f"emby_{utils.valid_Filename(str(self.Library.ServerData['ServerId']) + '_' + str(Item['Id']))}"
 
         if KodiItemIds[1]: # Video
-            utils.delFile(f"{utils.PlaylistPathVideo}{KodiItemIds[1]}.m3u")
             TagId = f"{utils.MappingIds['Tag']}{Item['Id']}"
             TagKodiId = self.SQLs["emby"].get_KodiId_by_EmbyId_EmbyType(TagId, "Tag")
             self.TagObject.remove({'Id': TagId, 'KodiItemId': TagKodiId, "LibraryId": Item['LibraryId']}, IncrementalSync)
 
+        LibraryIds = [(Item['LibraryId'],)] if Item['LibraryId'] else self.SQLs["emby"].get_LibraryIds_by_EmbyId(Item['Id'])
         self.SQLs["emby"].remove_item(Item['Id'], "Playlist", Item['LibraryId'])
+        AudioMembers = set(filter(None, (Item['EmbyLinkedId'] or "").partition(";")[0].split(",")))
+        for (LibraryId,) in LibraryIds:
+            self.remove_audio_tags(AudioMembers, LibraryId, Item['Id'])
+            self.remove_unused_members(self.synced_members(Item['EmbyLinkedId']), LibraryId)
+        self.SQLs["emby"].queue_playlist_file_delete(Item['Id'], f"{OwnedName}_audio", f"{utils.PlaylistPathMusic}{OwnedName}_audio.m3u")
+        self.SQLs["emby"].queue_playlist_file_delete(Item['Id'], f"{OwnedName}_video", f"{utils.PlaylistPathVideo}{OwnedName}_video.m3u")
 
     def userdata(self, Item, IncrementalSync, UpdateKodiFavorite):
-        common.set_Favorite(Item)
+        if not common.set_Favorite(Item):
+            return False
 
         if UpdateKodiFavorite:
             self.set_favorite(Item['IsFavorite'], Item)

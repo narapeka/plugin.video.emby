@@ -2,6 +2,8 @@ import threading
 import uuid
 import json
 import socket
+import sqlite3
+from time import monotonic
 from urllib.parse import urlsplit
 import xbmcvfs
 import xbmc
@@ -22,7 +24,7 @@ class EmbyServer:
         self.ServerSettings = ServerSettings
         self.Firstrun = not bool(self.ServerSettings)
         self.ServerData = {'AccessToken': "", 'UserId': "", 'UserName': "", 'UserImageUrl': "", 'ServerName': "", 'ServerId': "", 'ServerUrl': "", 'EmbyConnectExchangeToken': "", 'EmbyConnectUserId': "", 'EmbyConnectUserName': "", 'EmbyConnectAccessToken': "", 'ManualAddress': "", 'RemoteAddress': "", 'LocalAddress': "" ,'AdditionalUsers': {}, "DeviceId": "", "ServerVersion": "", "ServerRemoved": False}
-        self.ServerReconnecting = False
+        self.ServerReconnectLock = threading.Lock()
         self.LibrarySynced = []
         self.LibrarySyncedKodiDBs = {}
         self.LibrarySyncedNames = {}
@@ -35,78 +37,104 @@ class EmbyServer:
         self.API = api.API(self.ServerData, self.ViewItems, self.LibrarySyncedNames, self.LibrarySyncedContent, self.LibrarySyncedKodiDBs, self.EmbySession, self.http)
         self.Views = views.Views(self.ServerData, self.ViewItems, self.LibrarySynced, self.API)
         self.library = library.Library(self.ServerData, self.API, self.Views, self.LibrarySynced, self.LibrarySyncedNames, self.LibrarySyncedContent, self.LibrarySyncedKodiDBs)
+        self.http.HTTP.OnPlaybackReport = self.library.on_playback_report
         self.Websocket = websocket.WebSocket(self.ServerData, self.HTTPThreadsRunningCondition, self.EmbySession, self.API, self.library, self.WebsocketRunning, self.WebsocketMessageQueue)
         self.Online = False
-        self.MsgOffline = False
 
     def ServerReconnect(self, ShowMsg=False):
-        if self.Firstrun:
-            return
-
-        if not self.ServerReconnecting:
+        if not self.Firstrun and not self.ServerReconnectLock.locked():
             utils.start_thread(self.worker_ServerReconnect, (ShowMsg,))
 
     def worker_ServerReconnect(self, ShowMsg):
+        if not self.ServerReconnectLock.acquire(blocking=False):
+            return
 
-        if not self.ServerReconnecting:
-            if ShowMsg and utils.offlineMsg:
-                if self.Online:
-                    utils.Dialog.notification(heading=utils.addon_name, icon="DefaultIconError.png", message=f"{self.ServerData['ServerName']}: {utils.Translate(33575)}", time=utils.displayMessage, sound=False)
-                    self.MsgOffline = False
-
-                if not self.MsgOffline:
-                    utils.Dialog.notification(heading=utils.addon_name, icon="DefaultIconError.png", message=f"{self.ServerData['ServerName']}: {utils.Translate(33575)}", time=utils.displayMessage, sound=False)
-                    self.MsgOffline = True
-
-            utils.update_SyncPause(self.library.ServerReconnectingId, True)
-            utils.update_SyncPause(self.library.ServerBusyId, False)
-            self.ServerReconnecting = True
+        ReconnectingId = f"{self.ServerData['ServerId']}_server_reconnecting"
+        try:
+            NotifyAfter = monotonic() + 5
+            OfflineNotified = False
+            utils.update_SyncPause(ReconnectingId, True)
+            utils.update_SyncPause(f"{self.ServerData['ServerId']}_server_busy", False)
 
             while True:
                 self.stop()
 
-                if utils.sleep(1):
+                if utils.sleep(1) or not self.ServerData['ServerUrl']:
                     break
 
-                if not self.ServerData['ServerUrl']:
+                Connected = self.ServerHandshake()
+                if utils.SystemShutdown:
                     break
 
-                if self.ServerHandshake():
-                    self.start()
+                if Connected:
+                    if self.start() is False:
+                        return
+                    if OfflineNotified and utils.offlineMsg and not utils.SystemShutdown:
+                        utils.Dialog.notification(heading=utils.addon_name, icon=utils.icon, message=f"{self.ServerData['ServerName']}: {utils.Translate(33915)}", time=utils.displayMessage, sound=False)
+
                     break
 
-            utils.update_SyncPause(self.library.ServerReconnectingId, False)
-            self.ServerReconnecting = False
+                if ShowMsg and utils.offlineMsg and not OfflineNotified and monotonic() >= NotifyAfter:
+                    utils.Dialog.notification(heading=utils.addon_name, icon="DefaultIconError.png", message=f"{self.ServerData['ServerName']}: {utils.Translate(33914)}", time=utils.displayMessage, sound=False)
+                    OfflineNotified = True
+        finally:
+            utils.update_SyncPause(ReconnectingId, False)
+            self.ServerReconnectLock.release()
 
     def start(self):
-        self.library.load_settings()
-        utils.update_SyncPause(self.library.ServerStartingId, True)
-        self.Online = True
+        # Library was constructed before credentials supplied the server ID.
+        StartingId = f"{self.ServerData['ServerId']}_server_starting"
+        utils.update_SyncPause(StartingId, True)
+        self.Online = False
+        try:
+            # A bounded DB open attempt may expire while Kodi is still writing.
+            # Retry initialization here so first login, startup and reconnect agree.
+            while not utils.SystemShutdown and not self.ServerData.get('ServerRemoved', False):
+                try:
+                    if self.library.load_settings() is False:
+                        return False
+                    break
+                except sqlite3.OperationalError as Error:
+                    Code = getattr(Error, "sqlite_errorcode", 0) & 255
+                    if Code not in (5, 6) and str(Error).lower() not in ("database is locked", "database table is locked"):
+                        raise
+                    xbmc.log("EMBY.emby.emby: Database busy; retrying server initialization", xbmc.LOGWARNING)
+                    if utils.sleep(1):
+                        return False
+                except InterruptedError:
+                    if not utils.SystemShutdown:
+                        raise
+                    return False
+            else:
+                return False
 
-        with utils.SafeLock(utils.EmbyServerOnlineCondition):
-            utils.EmbyServerOnlineCondition.notify_all()
+            if utils.SystemShutdown or self.ServerData.get('ServerRemoved', False):
+                return False
+            self.Online = True
+            with utils.SafeLock(utils.EmbyServerOnlineCondition):
+                utils.EmbyServerOnlineCondition.notify_all()
 
-        self.Views.update_views()
-        self.Views.update_nodes()
+            self.Views.update_views()
+            self.Views.update_nodes()
 
-        if utils.websocketenabled and not self.WebsocketRunning[0]:
-            self.WebsocketMessageQueue.clear()
-            utils.start_thread(self.Websocket.Message, ())
+            if utils.websocketenabled and not self.WebsocketRunning[0]:
+                self.WebsocketMessageQueue.clear()
+                utils.start_thread(self.Websocket.Message, ())
 
-        self.http.start()
-        utils.start_thread(self.library.KodiStartSync, (self.Firstrun,))  # start initial sync
-        self.Firstrun = False
-
-
-        utils.update_SyncPause(self.library.ServerStartingId, False)
-        xbmc.log(f"EMBY.emby.emby: Connected to {self.ServerData['ServerName']}", xbmc.LOGINFO)
+            self.http.start()
+            utils.start_thread(self.library.KodiStartSync, (self.Firstrun,))
+            self.Firstrun = False
+            xbmc.log(f"EMBY.emby.emby: Connected to {self.ServerData['ServerName']}", xbmc.LOGINFO)
+            return True
+        finally:
+            utils.update_SyncPause(StartingId, False)
 
     def stop(self):
 
         if self.EmbySession and not self.ShutdownInProgress:
             self.ShutdownInProgress = True
-            utils.update_SyncPause(self.library.ServerStartingId, True)
-            utils.update_SyncPause(self.library.ServerBusyId, False)
+            utils.update_SyncPause(f"{self.ServerData['ServerId']}_server_starting", True)
+            utils.update_SyncPause(f"{self.ServerData['ServerId']}_server_busy", False)
             self.EmbySession.clear()
             self.Online = False
 
@@ -254,7 +282,8 @@ class EmbyServer:
                     return
 
                 if self.ServerHandshake():
-                    self.start()
+                    if self.start() is False:
+                        return
 
                     if SaveConfig:
                         self.save_credentials()

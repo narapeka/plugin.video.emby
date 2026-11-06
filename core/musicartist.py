@@ -113,7 +113,8 @@ class MusicArtist:
         if not common.verify_KodiIds(Item, IncrementalSync, False):
             return False
 
-        common.set_Favorite(Item)
+        if not common.set_Favorite(Item):
+            return False
         self.SQLs["emby"].update_favourite(Item['IsFavorite'], Item['Id'], "MusicArtist")
 
         if UpdateKodiFavorite:

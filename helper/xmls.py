@@ -148,6 +148,39 @@ def load_defaultvideosettings():
 
     return {}
 
+def load_video_resume_limits():
+    IgnoreStartSeconds = 180
+    IgnoreEndPercent = 8.0
+    ProfileSettings = "special://profile/advancedsettings.xml"
+    if not xbmcvfs.exists(ProfileSettings):
+        ProfileSettings = "special://masterprofile/advancedsettings.xml"
+
+    for Filepath in ("special://xbmc/system/advancedsettings.xml", ProfileSettings):
+        FileData = utils.readFileString(Filepath)
+        if not FileData:
+            continue
+
+        try:
+            Video = ElementTree.fromstring(FileData).find("video")
+        except ElementTree.ParseError:
+            continue
+
+        if Video is None:
+            continue
+
+        try:
+            IgnoreStartSeconds = min(900, max(0, int(Video.findtext("ignoresecondsatstart", IgnoreStartSeconds))))
+        except ValueError:
+            pass
+
+        try:
+            IgnoreEndPercent = min(100.0, max(0.0, float(Video.findtext("ignorepercentatend", IgnoreEndPercent))))
+        except ValueError:
+            pass
+
+    return IgnoreStartSeconds, IgnoreEndPercent
+
+
 def advanced_settings(CurlTimeout=None):
     if CurlTimeout is None:
         CurlTimeout = utils.curltimeouts

@@ -6,10 +6,33 @@ EmbyTypes = ("Movie", "Series", "Season", "Episode", "Audio", "MusicAlbum", "Mus
 EmbyFolderTypes = ("Series", "Season", "MusicAlbum", "MusicArtist", "Genre", "MusicGenre", "BoxSet", "Tag", "Studio", "Playlist", "Person", "Folder")
 EmbyTypesWithKodiId = ("Movie", "Series", "Season", "Episode", "Audio", "MusicAlbum", "MusicArtist", "Genre", "MusicGenre", "Video", "MusicVideo", "BoxSet", "Tag", "Studio", "Playlist", "Person")
 
+MovieTmdbMigrationVersion = 1
+
 class EmbyDatabase:
     def __init__(self, cursor):
         self.cursor = cursor
         self.common_db = common_db.CommonDatabase(cursor)
+        self.PendingPlaylistDeletes = {}
+        self.PlaylistFiles = None
+        self.MovieResumeOwnerPresence = {}
+
+    def write_playlist_file(self, Path, Data):
+        if self.PlaylistFiles is None:
+            self.PlaylistFiles = utils.PlaylistFileTransaction()
+        self.PlaylistFiles.write(Path, Data)
+
+    def queue_playlist_file_delete(self, EmbyId, KodiId, Path):
+        self.PendingPlaylistDeletes[Path] = (EmbyId, KodiId)
+
+    def delete_pending_playlist_files(self):
+        # Called only after this connection's transaction has committed.
+        for Path, (EmbyId, KodiId) in self.PendingPlaylistDeletes.items():
+            self.cursor.execute("SELECT KodiId FROM Playlist WHERE EmbyId = ?", (EmbyId,))
+            Row = self.cursor.fetchone()
+            # A later update in the same transaction may have restored this variant.
+            if not Row or KodiId not in (Row[0] or "").split(";"):
+                utils.delFile(Path)
+        self.PendingPlaylistDeletes.clear()
 
     def init_EmbyDB(self):
         Invalid = False
@@ -21,7 +44,8 @@ class EmbyDatabase:
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Tag (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, Memo TEXT COLLATE NOCASE, EmbyArtwork TEXT COLLATE NOCASE) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Person (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Folder (EmbyId INTEGER PRIMARY KEY, EmbyFolder TEXT COLLATE NOCASE, EmbyMetaData TEXT COLLATE NOCASE) WITHOUT ROWID")
-            self.cursor.execute("CREATE TABLE IF NOT EXISTS Movie (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, KodiFileId INTEGER, EmbyPresentationKey TEXT COLLATE NOCASE, EmbyFolder TEXT COLLATE NOCASE, KodiPathId INTEGER) WITHOUT ROWID")
+            self.cursor.execute("CREATE TABLE IF NOT EXISTS Movie (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, KodiFileId INTEGER, EmbyPresentationKey TEXT COLLATE NOCASE, EmbyFolder TEXT COLLATE NOCASE, KodiPathId INTEGER, TmdbId TEXT) WITHOUT ROWID")
+            self.cursor.execute("CREATE TABLE IF NOT EXISTS ResumeOwner (UserId TEXT, MediaType TEXT, Provider TEXT, ProviderId TEXT, EmbyId INTEGER, RetiredEmbyId INTEGER, PRIMARY KEY(UserId, MediaType, Provider, ProviderId)) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Video (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, KodiFileId INTEGER, EmbyPresentationKey TEXT COLLATE NOCASE, EmbyFolder TEXT COLLATE NOCASE, KodiPathId INTEGER, EmbyParentId INTEGER) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS BoxSet (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, KodiParentId TEXT COLLATE NOCASE) WITHOUT ROWID")
             self.cursor.execute("CREATE TABLE IF NOT EXISTS Series (EmbyId INTEGER PRIMARY KEY, KodiId INTEGER, EmbyFavourite BOOL, EmbyPresentationKey TEXT COLLATE NOCASE, KodiPathId INTEGER) WITHOUT ROWID")
@@ -82,7 +106,10 @@ class EmbyDatabase:
             self.cursor.execute("SELECT name FROM pragma_table_info('Movie')")
             Cols = self.cursor.fetchall()
 
-            if Cols != [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('KodiFileId',), ('EmbyPresentationKey',), ('EmbyFolder',), ('KodiPathId',)]:
+            MovieColumns = [('EmbyId',), ('KodiId',), ('EmbyFavourite',), ('KodiFileId',), ('EmbyPresentationKey',), ('EmbyFolder',), ('KodiPathId',)]
+            if Cols == MovieColumns:
+                self.cursor.execute("ALTER TABLE Movie ADD COLUMN TmdbId TEXT")
+            elif Cols != MovieColumns + [('TmdbId',)]:
                 Invalid = True
 
             self.cursor.execute("SELECT name FROM pragma_table_info('Video')")
@@ -249,28 +276,29 @@ class EmbyDatabase:
 
     def add_Index(self):
         try: # xbox issue
-            self.cursor.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_MediaSources_EmbyId'")
-            IndexTest = self.cursor.fetchone()
-
-            if not IndexTest:
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_EmbyLibraryMapping_EmbyLibraryId on EmbyLibraryMapping (EmbyLibraryId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_EmbyLibraryMapping_EmbyId_EmbyMusicAlbumId_EmbyMusicArtistId_EmbyMusicGenreId on EmbyLibraryMapping (EmbyId, EmbyMusicAlbumId, EmbyMusicArtistId, EmbyMusicGenreId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_EmbyLibraryMapping_EmbyMusicAlbumId_EmbyLibraryId on EmbyLibraryMapping (EmbyMusicAlbumId, EmbyLibraryId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_EmbyLibraryMapping_EmbyMusicArtistId_EmbyLibraryId on EmbyLibraryMapping (EmbyMusicArtistId, EmbyLibraryId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_EmbyLibraryMapping_EmbyMusicGenreId_EmbyLibraryId on EmbyLibraryMapping (EmbyMusicGenreId, EmbyLibraryId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_MediaSources_EmbyId on MediaSources (EmbyId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_MediaSources_Path on MediaSources (Path)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Movie_EmbyFolder on Movie (EmbyFolder)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Video_EmbyFolder on Video (EmbyFolder)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Video_EmbyParentId on Video (EmbyParentId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Episode_EmbyFolder on Episode (EmbyFolder)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_MusicVideo_EmbyFolder on MusicVideo (EmbyFolder)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Audio_EmbyFolder on Audio (EmbyFolder)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Video_KodiFileId on Video (KodiFileId)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Tag_Memo on Tag (Memo)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Audio_EmbyParentId on Audio (EmbyParentId)")
-                self.cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_RemoveItems_EmbyId_NullLibrary ON RemoveItems (EmbyId) WHERE EmbyLibraryId IS NULL")
-                self.cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UpdateItems_EmbyId_NullKodiDB ON UpdateItems (EmbyId) WHERE KodiDB IS NULL")
+            SchemaVersion = self.cursor.execute("PRAGMA schema_version").fetchone()[0]
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_EmbyLibraryMapping_EmbyLibraryId on EmbyLibraryMapping (EmbyLibraryId)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_EmbyLibraryMapping_EmbyId_EmbyMusicAlbumId_EmbyMusicArtistId_EmbyMusicGenreId on EmbyLibraryMapping (EmbyId, EmbyMusicAlbumId, EmbyMusicArtistId, EmbyMusicGenreId)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_EmbyLibraryMapping_EmbyMusicAlbumId_EmbyLibraryId on EmbyLibraryMapping (EmbyMusicAlbumId, EmbyLibraryId)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_EmbyLibraryMapping_EmbyMusicArtistId_EmbyLibraryId on EmbyLibraryMapping (EmbyMusicArtistId, EmbyLibraryId)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_EmbyLibraryMapping_EmbyMusicGenreId_EmbyLibraryId on EmbyLibraryMapping (EmbyMusicGenreId, EmbyLibraryId)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_MediaSources_EmbyId on MediaSources (EmbyId)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_MediaSources_Path on MediaSources (Path)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Movie_EmbyFolder on Movie (EmbyFolder)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Video_EmbyFolder on Video (EmbyFolder)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Video_EmbyParentId on Video (EmbyParentId)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Episode_EmbyFolder on Episode (EmbyFolder)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_MusicVideo_EmbyFolder on MusicVideo (EmbyFolder)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Audio_EmbyFolder on Audio (EmbyFolder)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Video_KodiFileId on Video (KodiFileId)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Tag_Memo on Tag (Memo)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_Audio_EmbyParentId on Audio (EmbyParentId)")
+            for Table in ("Movie", "Series", "Season", "Episode"):
+                self.cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_{Table}_KodiId ON {Table}(KodiId)")
+                self.cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_{Table}_PresentationKey ON {Table}(EmbyPresentationKey)")
+            self.cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_RemoveItems_EmbyId_NullLibrary ON RemoveItems (EmbyId) WHERE EmbyLibraryId IS NULL")
+            self.cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UpdateItems_EmbyId_NullKodiDB ON UpdateItems (EmbyId) WHERE KodiDB IS NULL")
+            if self.cursor.execute("PRAGMA schema_version").fetchone()[0] != SchemaVersion:
                 self.cursor.execute("ANALYZE")
                 self.cursor.connection.commit()
                 self.cursor.execute("BEGIN IMMEDIATE TRANSACTION")
@@ -279,6 +307,9 @@ class EmbyDatabase:
 
     def delete_Index(self):
         try: # xbox issue
+            for Table in ("Movie", "Series", "Season", "Episode"):
+                self.cursor.execute(f"DROP INDEX IF EXISTS idx_{Table}_KodiId")
+                self.cursor.execute(f"DROP INDEX IF EXISTS idx_{Table}_PresentationKey")
             self.cursor.execute("DROP INDEX IF EXISTS idx_MediaSources_EmbyId")
             self.cursor.execute("DROP INDEX IF EXISTS idx_MediaSources_Path")
             self.cursor.execute("DROP INDEX IF EXISTS idx_Movie_EmbyFolder")
@@ -347,7 +378,22 @@ class EmbyDatabase:
 
     # UserdataItems
     def add_Userdatas(self, Data):
-        self.cursor.executemany("INSERT OR REPLACE INTO UserdataItems (EmbyId, EmbyType, EmbyPlaybackPositionTicks, EmbyPlayCount, EmbyIsFavorite, EmbyPlayed, EmbyLastPlayedDate, PlayedPercentage, UnplayedItemCount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", Data)
+        self.cursor.executemany("""
+            INSERT INTO UserdataItems VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(EmbyId) DO UPDATE SET
+                EmbyType = COALESCE(excluded.EmbyType, EmbyType),
+                EmbyPlaybackPositionTicks = COALESCE(excluded.EmbyPlaybackPositionTicks, EmbyPlaybackPositionTicks),
+                EmbyPlayCount = COALESCE(excluded.EmbyPlayCount, EmbyPlayCount),
+                EmbyIsFavorite = COALESCE(excluded.EmbyIsFavorite, EmbyIsFavorite),
+                EmbyPlayed = COALESCE(excluded.EmbyPlayed, EmbyPlayed),
+                EmbyLastPlayedDate = COALESCE(excluded.EmbyLastPlayedDate, EmbyLastPlayedDate),
+                PlayedPercentage = COALESCE(excluded.PlayedPercentage, PlayedPercentage),
+                UnplayedItemCount = COALESCE(excluded.UnplayedItemCount, UnplayedItemCount)
+        """, Data)
+
+    def has_Userdata(self):
+        self.cursor.execute("SELECT EXISTS(SELECT 1 FROM UserdataItems)")
+        return bool(self.cursor.fetchone()[0])
 
     def get_Userdata(self):
         self.cursor.execute("SELECT * FROM UserdataItems")
@@ -603,8 +649,8 @@ class EmbyDatabase:
         self.cursor.execute("INSERT OR REPLACE INTO BoxSet (EmbyId, KodiId, KodiParentId) VALUES (?, ?, ?)", (EmbyId, KodiId, KodiParentId))
         self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
 
-    def add_reference_movie(self, EmbyId, EmbyLibraryId, KodiId, KodiFileId, EmbyPresentationKey, EmbyFolder, KodiPathId):
-        self.cursor.execute("INSERT OR REPLACE INTO Movie (EmbyId, KodiId, KodiFileId, EmbyPresentationKey, EmbyFolder, KodiPathId) VALUES (?, ?, ?, ?, ?, ?)", (EmbyId, KodiId, KodiFileId, EmbyPresentationKey, EmbyFolder, KodiPathId))
+    def add_reference_movie(self, EmbyId, EmbyLibraryId, KodiId, KodiFileId, EmbyPresentationKey, EmbyFolder, KodiPathId, TmdbId):
+        self.cursor.execute("INSERT OR REPLACE INTO Movie (EmbyId, KodiId, KodiFileId, EmbyPresentationKey, EmbyFolder, KodiPathId, TmdbId) VALUES (?, ?, ?, ?, ?, ?, ?)", (EmbyId, KodiId, KodiFileId, EmbyPresentationKey, EmbyFolder, KodiPathId, TmdbId))
         self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
 
     def add_reference_musicvideo(self, EmbyId, EmbyLibraryId, KodiId, KodiFileId, EmbyPresentationKey, EmbyFolder, KodiPathId, LibraryIds, EmbyMusicArtistIds, EmbyMusicGenreIds):
@@ -647,8 +693,20 @@ class EmbyDatabase:
         self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
 
     def add_reference_playlist(self, EmbyId, EmbyLibraryId, KodiId, EmbyArtwork, EmbyLinkedId, Name):
-        self.cursor.execute("INSERT OR REPLACE INTO Playlist (EmbyId, KodiId, EmbyArtwork, EmbyLinkedId, Name) VALUES (?, ?, ?, ?, ?)", (EmbyId, KodiId, EmbyArtwork, EmbyLinkedId, Name))
+        self.cursor.execute("""INSERT INTO Playlist (EmbyId, KodiId, EmbyArtwork, EmbyLinkedId, Name) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(EmbyId) DO UPDATE SET KodiId = excluded.KodiId, EmbyArtwork = excluded.EmbyArtwork,
+                EmbyLinkedId = excluded.EmbyLinkedId, Name = excluded.Name""", (EmbyId, KodiId, EmbyArtwork, EmbyLinkedId, Name))
         self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
+
+    def get_library_playlists(self, LibraryId):
+        self.cursor.execute("""SELECT Playlist.EmbyLinkedId FROM Playlist
+            JOIN EmbyLibraryMapping USING (EmbyId) WHERE EmbyLibraryId = ?""", (LibraryId,))
+        return [Row[0] for Row in self.cursor.fetchall()]
+
+    def cancel_playlist_member_removals(self, LibraryId, Members):
+        # A later playlist update can add a member queued for removal by another list.
+        self.cursor.executemany("DELETE FROM RemoveItems WHERE EmbyId = ? AND EmbyLibraryId = ?",
+                                ((EmbyId, LibraryId) for EmbyId in Members))
 
     def add_reference_studio(self, EmbyId, EmbyLibraryId, KodiId, EmbyArtwork):
         self.cursor.execute("INSERT OR REPLACE INTO Studio (EmbyId, KodiId, EmbyArtwork) VALUES (?, ?, ?)", (EmbyId, KodiId, EmbyArtwork))
@@ -684,8 +742,8 @@ class EmbyDatabase:
         self.cursor.executemany("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId, EmbyMusicArtistId, EmbyMusicGenreId) VALUES (?, ?, ?, ?)", SQLData)
         del SQLData
 
-    def update_reference_movie(self, EmbyId, EmbyPresentationKey, EmbyLibraryId):
-        self.cursor.execute("UPDATE Movie SET EmbyPresentationKey = ? WHERE EmbyId = ?", (EmbyPresentationKey, EmbyId))
+    def update_reference_movie(self, EmbyId, EmbyPresentationKey, EmbyLibraryId, TmdbId):
+        self.cursor.execute("UPDATE Movie SET EmbyPresentationKey = ?, TmdbId = ? WHERE EmbyId = ?", (EmbyPresentationKey, TmdbId, EmbyId))
         self.cursor.execute("INSERT OR IGNORE INTO EmbyLibraryMapping (EmbyLibraryId, EmbyId) VALUES (?, ?)", (EmbyLibraryId, EmbyId))
 
     def update_deleted_musicvideo(self, EmbyId, KodiItemIds, KodiFileIds, KodiPathIds, EmbyLibraryIds):
@@ -1229,6 +1287,69 @@ class EmbyDatabase:
 
         return []
 
+    def get_movie_tmdb_migration(self):
+        self.cursor.execute("PRAGMA user_version")
+        if self.cursor.fetchone()[0] >= MovieTmdbMigrationVersion:
+            return None
+
+        self.cursor.execute("SELECT EmbyId, KodiId FROM Movie WHERE TmdbId IS NULL AND KodiId > 0")
+        return self.cursor.fetchall()
+
+    def complete_movie_tmdb_migration(self, Updates):
+        self.cursor.executemany("UPDATE Movie SET TmdbId = ? WHERE EmbyId = ? AND TmdbId IS NULL", Updates)
+        # Commit the backfill and its completion version in the same Gen transaction.
+        self.cursor.execute(f"PRAGMA user_version = {MovieTmdbMigrationVersion}")
+
+    def has_movie_resume_owners(self, UserId):
+        # This object belongs to one open connection; a worker reopen checks again.
+        if UserId not in self.MovieResumeOwnerPresence:
+            self.cursor.execute("SELECT 1 FROM ResumeOwner WHERE UserId = ? AND MediaType = 'Movie' AND Provider = 'tmdb' LIMIT 1", (UserId,))
+            self.MovieResumeOwnerPresence[UserId] = self.cursor.fetchone() is not None
+        return self.MovieResumeOwnerPresence[UserId]
+
+    def get_movie_resume_owner(self, UserId, EmbyId):
+        self.cursor.execute("""
+            SELECT movie.TmdbId, movie.KodiId, chosen.EmbyId, chosen.KodiId, owner.RetiredEmbyId
+            FROM Movie AS movie
+            LEFT JOIN ResumeOwner AS owner ON owner.UserId = ? AND owner.MediaType = 'Movie'
+                AND owner.Provider = 'tmdb' AND owner.ProviderId = movie.TmdbId
+            LEFT JOIN Movie AS chosen ON chosen.EmbyId = owner.EmbyId
+                AND chosen.TmdbId = movie.TmdbId AND chosen.KodiId > 0 AND chosen.KodiFileId > 0
+            WHERE movie.EmbyId = ? AND movie.TmdbId IS NOT NULL
+                AND movie.KodiId > 0 AND movie.KodiFileId > 0
+        """, (UserId, EmbyId))
+        return self.cursor.fetchone()
+
+    def set_movie_resume_owner(self, UserId, TmdbId, EmbyId, RetiredEmbyId):
+        self.cursor.execute("""
+            INSERT INTO ResumeOwner (UserId, MediaType, Provider, ProviderId, EmbyId, RetiredEmbyId)
+            VALUES (?, 'Movie', 'tmdb', ?, ?, ?)
+            ON CONFLICT (UserId, MediaType, Provider, ProviderId) DO UPDATE SET
+                EmbyId = excluded.EmbyId, RetiredEmbyId = excluded.RetiredEmbyId
+        """, (UserId, TmdbId, EmbyId, RetiredEmbyId))
+        self.MovieResumeOwnerPresence[UserId] = True
+
+    def get_movie_resume_retirements(self, UserId):
+        self.cursor.execute("""
+            SELECT retired.KodiId
+            FROM ResumeOwner AS owner
+            LEFT JOIN Movie AS chosen ON chosen.EmbyId = owner.EmbyId AND chosen.TmdbId = owner.ProviderId
+            LEFT JOIN Movie AS retired ON retired.EmbyId = owner.RetiredEmbyId
+                AND retired.TmdbId = owner.ProviderId AND retired.KodiId <> chosen.KodiId
+            WHERE owner.UserId = ? AND owner.MediaType = 'Movie' AND owner.Provider = 'tmdb'
+                AND owner.RetiredEmbyId IS NOT NULL
+        """, (UserId,))
+        return self.cursor.fetchall()
+
+    def clear_movie_resume_retirements(self, UserId):
+        self.cursor.execute("UPDATE ResumeOwner SET RetiredEmbyId = NULL WHERE UserId = ? AND MediaType = 'Movie' AND Provider = 'tmdb' AND RetiredEmbyId IS NOT NULL", (UserId,))
+
+    def clear_movie_resume_owners(self):
+        self.cursor.execute("DELETE FROM ResumeOwner")
+
+    def clear_movie_resume_owner(self, UserId, EmbyId):
+        self.cursor.execute("DELETE FROM ResumeOwner WHERE UserId = ? AND MediaType = 'Movie' AND Provider = 'tmdb' AND EmbyId = ? AND RetiredEmbyId IS NULL", (UserId, EmbyId))
+
     def get_movieversions(self, EmbyId):
         self.cursor.execute("SELECT KodiId FROM Movie WHERE EmbyId = ?", (EmbyId,))
         KodiId = self.cursor.fetchone()
@@ -1406,6 +1527,9 @@ class EmbyDatabase:
         # Delete content item
         if DeleteItem:
             self.cursor.execute(f"DELETE FROM {EmbyType} WHERE EmbyId = ?", (EmbyId,))
+
+            if EmbyType == "Movie":
+                self.cursor.execute("DELETE FROM ResumeOwner WHERE MediaType = 'Movie' AND EmbyId = ?", (EmbyId,))
 
             if EmbyType in ("Movie", "Video", "MusicVideo", "Episode", "Audio"):
                 self.remove_item_streaminfos(EmbyId)

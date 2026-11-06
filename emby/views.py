@@ -339,7 +339,7 @@ class Views:
 
     def update_playlist_nodes(self, ItemId, Name, Icon, LinkedIds):
         Filename = f"{self.ServerData['ServerId']}_{ItemId}"
-        Audio, _, _, _, MusicVideos = (LinkedIds or ";;;;").split(";")
+        Audio, _, _, _, MusicVideos = (LinkedIds or ";;;;").split(";")[:5]
         for Folder, HasItems, Content, Rule, DefaultIcon in (
             (PLAYLIST_NODE_FOLDERS[0], Audio, "songs", ("comment", "contains", f"EmbyPlaylistId-{ItemId}"), "DefaultMusicSongs.png"),
             (PLAYLIST_NODE_FOLDERS[1], MusicVideos, "musicvideos", ("tag", "is", Name), "DefaultMusicVideos.png"),

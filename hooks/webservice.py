@@ -6,6 +6,7 @@ import uuid
 import socket
 import sqlite3
 import xbmc
+import xbmcgui
 import xbmcplugin
 from database import dbio
 from emby import metadata, httpcache
@@ -25,6 +26,7 @@ EpisodeSelections = {}
 EpisodeSelectionsByToken = {}
 EpisodeVersionRequests = tuple(f"{Method} {metadata.EpisodeVersionApi}".encode() for Method in ("GET", "HEAD"))
 SimilarRequests = tuple(f"{Method} {similar.API_PATH}".encode() for Method in ("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"))
+ApiVersionProperty = "EmbyPluginX"
 EpisodeRetryWindow = 1.0
 EpisodeStopTimeout = 0.3
 EpisodeResponseLifetime = 5.0
@@ -128,6 +130,8 @@ def get_MediaHandler(Payload):
 def start():
     global Running
     global Socket
+    HomeWindow = xbmcgui.Window(10000)
+    HomeWindow.clearProperty(ApiVersionProperty)
     Running = True
 
     try: # intercept multiple start by different threads (just precaution)
@@ -135,6 +139,8 @@ def start():
         LocalSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         LocalSocket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         LocalSocket.bind(('127.0.0.1', 57342))
+        LocalSocket.listen()
+        LocalSocket.settimeout(0.1)
         Socket = LocalSocket
     except Exception as Error:
         xbmc.log(f"EMBY.hooks.webservice: Socket start (error) {Error}", xbmc.LOGERROR)
@@ -147,10 +153,12 @@ def start():
 
     utils.start_thread(Listen, ())
     utils.start_thread(AsyncCommands, ())
+    HomeWindow.setProperty(ApiVersionProperty, "1")
     return True
 
 def close():
     global Running
+    xbmcgui.Window(10000).clearProperty(ApiVersionProperty)
 
     if Running:
         Running = False
@@ -171,9 +179,6 @@ def close():
 
 
 def Listen():
-    Socket.listen()
-    Socket.settimeout(0.1)
-
     while not utils.SystemShutdown and Running:
         if EpisodeSelectionsByToken:
             expire_episode_selections()
@@ -186,211 +191,245 @@ def Listen():
         WorkerQueue.put(ClinetSocket)
 
 
-def worker_Query(WorkerNumber):  # thread by caller
+def read_request(client):
+    """Read an HTTP request line; preserve the legacy local EVENT protocol."""
+    Deadline = monotonic() + 5.0
+    Data = b""
+    while len(Data) < 131072:
+        Remaining = Deadline - monotonic()
+        if Remaining <= 0:
+            raise TimeoutError("Incomplete local request")
+        client.settimeout(Remaining)
+        Chunk = client.recv(min(16384, 131072 - len(Data)))
+        if not Chunk:
+            return b""
+        Data += Chunk
+        if Data.startswith(b"EVENT "):
+            if Data.endswith(b"\n"):
+                return Data.rstrip(b"\r\n") + b"\n" if Data.startswith(b"EVENT service;multiversion;") else Data.rstrip(b"\r\n")
+            # Older installed entry scripts send unframed EVENT messages.
+            if Data.startswith(b"EVENT service;") and not Data.startswith(b"EVENT service;multiversion;"):
+                return Data
+        elif b"\r\n" in Data:
+            return Data
+    raise ValueError("Local request too large")
 
+
+def worker_Query(WorkerNumber):
     while Running:
-        Data = WorkerQueue.get()
+        client = WorkerQueue.get()
+        if client == "QUIT":
+            return
+        try:
+            handle_query(client)
+        except OSError:
+            pass  # The caller can cancel at any point during a response.
+        except Exception as Error:
+            xbmc.log(f"EMBY.hooks.webservice: Request failed: {type(Error).__name__}", xbmc.LOGERROR)
+        finally:
+            client.close()
 
-        if Data == "QUIT":
+
+def handle_query(client):
+    client.settimeout(5.0)
+    try:
+        RequestData = read_request(client)
+        IsSimilar = RequestData.startswith(SimilarRequests)
+        if IsSimilar or RequestData.startswith(EpisodeVersionRequests):
+            HeaderDeadline = monotonic() + 1.0
+            # The Similar handler polls for disconnects after the request headers are read.
+            RequestEnd = b'\r\n\r\n' if IsSimilar else b'\r\n'
+            while RequestEnd not in RequestData and len(RequestData) < 131072:
+                Remaining = HeaderDeadline - monotonic()
+                if Remaining <= 0:
+                    raise TimeoutError("Incomplete local headers")
+                client.settimeout(Remaining)
+                Chunk = client.recv(16384)
+                if not Chunk:
+                    break
+                RequestData += Chunk
+
+            if RequestEnd in RequestData and len(RequestData) <= 131072:
+                Method, Path, _ = RequestData.split(b'\r\n', 1)[0].decode().split(' ', 2)
+                if IsSimilar:
+                    serve_similar(client, Method, Path)
+                else:
+                    serve_episode_version(client, Method, Path)
+            client.close()
             return
 
-        client = Data
-        client.settimeout(None)
-        try:
-            RequestData = client.recv(16384)
-            IsSimilar = RequestData.startswith(SimilarRequests)
-            if IsSimilar or RequestData.startswith(EpisodeVersionRequests):
-                client.settimeout(1.0)
-                # The Similar handler polls for disconnects after the request headers are read.
-                RequestEnd = b'\r\n\r\n' if IsSimilar else b'\r\n'
-                while RequestEnd not in RequestData and len(RequestData) < 131072:
-                    Chunk = client.recv(16384)
-                    if not Chunk:
-                        break
-                    RequestData += Chunk
+        if RequestData.startswith(b"EVENT service;multiversion;"):
+            # The clicked item's encoded URL can span more than one socket read.
+            client.settimeout(1.0)
+            while not RequestData.endswith(b"\n") and len(RequestData) < 65536:
+                Chunk = client.recv(16384)
+                if not Chunk:
+                    break
+                RequestData += Chunk
 
-                if RequestEnd in RequestData and len(RequestData) <= 131072:
-                    Method, Path, _ = RequestData.split(b'\r\n', 1)[0].decode().split(' ', 2)
-                    if IsSimilar:
-                        serve_similar(client, Method, Path)
-                    else:
-                        serve_episode_version(client, Method, Path)
+            if not RequestData.endswith(b"\n") or len(RequestData) > 65536:
                 client.close()
-                continue
+                return
 
-            if RequestData.startswith(b"EVENT service;multiversion;"):
-                # The clicked item's encoded URL can span more than one socket read.
-                client.settimeout(1.0)
-                while not RequestData.endswith(b"\n") and len(RequestData) < 65536:
-                    Chunk = client.recv(16384)
-                    if not Chunk:
-                        break
-                    RequestData += Chunk
+            RequestData = RequestData[:-1]
 
-                if not RequestData.endswith(b"\n") or len(RequestData) > 65536:
-                    client.close()
-                    continue
-
-                RequestData = RequestData[:-1]
-
-            data = RequestData.decode()
-        except (OSError, UnicodeError, ValueError):
-            client.close()
-            continue
-
-        IncomingData = data.split(' ')
-
-        if len(IncomingData) < 2 or (IncomingData[0] != "EVENT" and not IncomingData[1].startswith('/')):
-            client.send(sendNotFound)
-            client.close()
-            continue
-
-        if IncomingData[0] not in ("EVENT", "GET", "HEAD"):
-            client.send(sendHeadNotImplemented)
-            client.close()
-            continue
-
-        # events by event.py
-        if IncomingData[0] == "EVENT":
-            args = IncomingData[1].split(";")
-
-            if len(args) < 2:
-                client.send(sendNotFound)
-                client.close()
-                continue
-
-            if args[1] == "multiversion":
-                client.send(sendOK)
-                client.close()
-                context.multiversion(unquote(args[2]) if len(args) > 2 else "")
-                continue
-
-
-            if args[1] == "refreshitem":
-                client.send(sendOK)
-                client.close()
-                context.refreshitem()
-                continue
-
-
-            if args[1] == "settings":
-                client.send(sendOK)
-                client.close()
-                xbmc.executebuiltin('Addon.OpenSettings(plugin.service.emby-next-gen)')
-                continue
-
-            # Remaining events use a numeric plugin handle. Retired menu actions end here.
-            if len(args) < 3 or not args[1].lstrip("-").isdigit():
-                client.send(sendNotFound)
-                client.close()
-                continue
-
-            # no delay
-            params = args[2]
-
-            if params.endswith("/&reload="):
-                params = params[:-9]
-            elif params.endswith("/"):
-                params = params[:-1]
-
-            Handle = args[1]
-            params = dict(parse_qsl(params[1:]))
-            mode = params.get('mode', "")
-            ServerId = params.get('server', "")
-
-            if mode == 'settings':  # Simple commands
-                client.send(sendOK)
-                client.close()
-                xbmc.executebuiltin('Addon.OpenSettings(plugin.service.emby-next-gen)')
-                continue
-
-            if mode == 'managelibsselection':  # Simple commands
-                client.send(sendOK)
-                client.close()
-                pluginmenu.select_managelibs()
-                continue
-
-
-            if mode == 'nodesreset':  # Simple commands
-                client.send(sendOK)
-                client.close()
-                utils.nodesreset()
-                continue
-
-
-            if mode == 'play':
-                client.send(sendOK)
-                client.close()
-                playerops.PlayEmby((params.get('item'),), "PlayNow", -1, -1, utils.EmbyServers[ServerId].ServerData, utils.EmbyServers[ServerId].API)
-                continue
-
-            if mode == 'syncednodes' or (mode == 'browse' and params.get('query') == 'NodesSynced'):
-                Media = params.get('media') or {'audio': 'music', 'video': 'video'}.get(params.get('contentsupported'), "")
-                pluginmenu.listing(Handle, ServerId, Media)
-            elif mode in ('browse', 'search'):
-                # Retired URLs must not reopen server-side dynamic browsing.
-                xbmcplugin.endOfDirectory(int(Handle), succeeded=False, cacheToDisc=False, updateListing=False)
-            elif mode == 'playlist':
-                pluginmenu.get_playlist(Handle, ServerId, params['mediatype'], params.get('id', ""), params.get('playlistid', ""))
-            elif mode == 'nextepisodes':
-                pluginmenu.get_next_episodes(Handle, params['libraryname'])
-            elif mode == 'nextepisodesplayed':
-                pluginmenu.get_next_episodes_played(Handle, params['libraryname'])
-            elif mode == 'favepisodes':
-                pluginmenu.favepisodes(Handle)
-            elif mode == 'favseasons':
-                pluginmenu.favseasons(Handle)
-            elif mode == 'inprogressmixed':
-                pluginmenu.get_inprogress_mixed(Handle)
-            elif mode == 'recentlyaddedmusicvideoalbums':
-                pluginmenu.get_recentlyadded_musicvideosalbums(Handle, params.get('libraryname'))
-            else:  # 'listing'
-                pluginmenu.listing(Handle)
-
-            client.send(sendOK)
-            client.close()
-            continue
-
-        # Detect content type
-        isPicture = False
-        isAudio = False
-        isVideo = False
-        isDelayedContent = IncomingData[1].startswith("/delayed_content/")
-        Payload = IncomingData[1].replace("/delayed_content", "")
-
-        if "/picture/" in IncomingData[1]:
-            isPicture = True
-        elif "/audio/" in IncomingData[1]:
-            isAudio = True
-        else:
-            isVideo = True
-
-        PayloadLower = Payload.lower()
-
-        if PayloadLower.endswith('/') or 'extrafanart' in PayloadLower or 'extrathumbs' in PayloadLower or 'extras/' in PayloadLower or PayloadLower.endswith('.edl') or PayloadLower.endswith('index.bdmv') or PayloadLower.endswith('index.bdm') or PayloadLower.endswith('.txt') or PayloadLower.endswith('.vprj') or PayloadLower.endswith('.xml') or PayloadLower.endswith('.nfo') or (not isPicture and (PayloadLower.endswith('.bmp') or PayloadLower.endswith('.jpg') or PayloadLower.endswith('.jpeg') or PayloadLower.endswith('.ico') or PayloadLower.endswith('.png') or PayloadLower.endswith('.ifo') or PayloadLower.endswith('.gif') or PayloadLower.endswith('.tbn') or PayloadLower.endswith('.tiff'))): # Filter invalid requests
-            client.send(sendNotFound)
-        else: # Process request
-            if IncomingData[0] == "GET":
-                GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo)
-            elif IncomingData[0] == "HEAD":
-                if isPicture or isAudio:
-                    MimeType, _ = utils.get_MimeType(Payload)
-
-                    if not MimeType:
-                        if isPicture:
-                            client.send(sendHeadPicture)
-                        elif isAudio:
-                            client.send(sendHeadAudio)
-                    else:
-                        client.send(f'HTTP/1.1 200 OK\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nContent-Type: {MimeType}\r\nAccept-Ranges: none\r\n\r\n'.encode())
-                else: # Send a neutral mime type, otherwise not possible to change it after head request (multi content selection)
-                    client.send(sendHeadVideo)
-            else:
-                client.send(sendOK)
-
+        data = RequestData.decode()
+    except (OSError, UnicodeError, ValueError):
         client.close()
-        del client
-        del IncomingData
+        return
+
+    IncomingData = data.split(' ')
+
+    if len(IncomingData) < 2 or (IncomingData[0] != "EVENT" and not IncomingData[1].startswith('/')):
+        client.sendall(sendNotFound)
+        client.close()
+        return
+
+    if IncomingData[0] not in ("EVENT", "GET", "HEAD"):
+        client.sendall(sendHeadNotImplemented)
+        client.close()
+        return
+
+    # events by event.py
+    if IncomingData[0] == "EVENT":
+        args = IncomingData[1].split(";")
+
+        if len(args) < 2:
+            client.sendall(sendNotFound)
+            client.close()
+            return
+
+        if args[1] == "multiversion":
+            client.sendall(sendOK)
+            client.close()
+            context.multiversion(unquote(args[2]) if len(args) > 2 else "")
+            return
+
+
+        if args[1] == "refreshitem":
+            client.sendall(sendOK)
+            client.close()
+            context.refreshitem()
+            return
+
+
+        if args[1] == "settings":
+            client.sendall(sendOK)
+            client.close()
+            xbmc.executebuiltin('Addon.OpenSettings(plugin.service.emby-next-gen)')
+            return
+
+        # Remaining events use a numeric plugin handle. Retired menu actions end here.
+        if len(args) < 3 or not args[1].lstrip("-").isdigit():
+            client.sendall(sendNotFound)
+            client.close()
+            return
+
+        # no delay
+        params = args[2]
+
+        if params.endswith("/&reload="):
+            params = params[:-9]
+        elif params.endswith("/"):
+            params = params[:-1]
+
+        Handle = args[1]
+        params = dict(parse_qsl(params[1:]))
+        mode = params.get('mode', "")
+        ServerId = params.get('server', "")
+
+        if mode == 'settings':  # Simple commands
+            client.sendall(sendOK)
+            client.close()
+            xbmc.executebuiltin('Addon.OpenSettings(plugin.service.emby-next-gen)')
+            return
+
+        if mode == 'managelibsselection':  # Simple commands
+            client.sendall(sendOK)
+            client.close()
+            pluginmenu.select_managelibs()
+            return
+
+
+        if mode == 'nodesreset':  # Simple commands
+            client.sendall(sendOK)
+            client.close()
+            utils.nodesreset()
+            return
+
+
+        if mode == 'play':
+            client.sendall(sendOK)
+            client.close()
+            playerops.PlayEmby((params.get('item'),), "PlayNow", -1, -1, utils.EmbyServers[ServerId].ServerData, utils.EmbyServers[ServerId].API)
+            return
+
+        if mode == 'syncednodes' or (mode == 'browse' and params.get('query') == 'NodesSynced'):
+            Media = params.get('media') or {'audio': 'music', 'video': 'video'}.get(params.get('contentsupported'), "")
+            pluginmenu.listing(Handle, ServerId, Media)
+        elif mode in ('browse', 'search'):
+            # Retired URLs must not reopen server-side dynamic browsing.
+            xbmcplugin.endOfDirectory(int(Handle), succeeded=False, cacheToDisc=False, updateListing=False)
+        elif mode == 'playlist':
+            pluginmenu.get_playlist(Handle, ServerId, params['mediatype'], params.get('id', ""), params.get('playlistid', ""))
+        elif mode == 'nextepisodes':
+            pluginmenu.get_next_episodes(Handle, params['libraryname'])
+        elif mode == 'nextepisodesplayed':
+            pluginmenu.get_next_episodes_played(Handle, params['libraryname'])
+        elif mode == 'favepisodes':
+            pluginmenu.favepisodes(Handle)
+        elif mode == 'favseasons':
+            pluginmenu.favseasons(Handle)
+        elif mode == 'inprogressmixed':
+            pluginmenu.get_inprogress_mixed(Handle)
+        elif mode == 'recentlyaddedmusicvideoalbums':
+            pluginmenu.get_recentlyadded_musicvideosalbums(Handle, params.get('libraryname'))
+        else:  # 'listing'
+            pluginmenu.listing(Handle)
+
+        client.sendall(sendOK)
+        client.close()
+        return
+
+    # Detect content type
+    isPicture = False
+    isAudio = False
+    isVideo = False
+    isDelayedContent = IncomingData[1].startswith("/delayed_content/")
+    Payload = IncomingData[1].replace("/delayed_content", "")
+
+    if "/picture/" in IncomingData[1]:
+        isPicture = True
+    elif "/audio/" in IncomingData[1]:
+        isAudio = True
+    else:
+        isVideo = True
+
+    PayloadLower = Payload.lower()
+
+    if PayloadLower.endswith('/') or 'extrafanart' in PayloadLower or 'extrathumbs' in PayloadLower or 'extras/' in PayloadLower or PayloadLower.endswith('.edl') or PayloadLower.endswith('index.bdmv') or PayloadLower.endswith('index.bdm') or PayloadLower.endswith('.txt') or PayloadLower.endswith('.vprj') or PayloadLower.endswith('.xml') or PayloadLower.endswith('.nfo') or (not isPicture and (PayloadLower.endswith('.bmp') or PayloadLower.endswith('.jpg') or PayloadLower.endswith('.jpeg') or PayloadLower.endswith('.ico') or PayloadLower.endswith('.png') or PayloadLower.endswith('.ifo') or PayloadLower.endswith('.gif') or PayloadLower.endswith('.tbn') or PayloadLower.endswith('.tiff'))): # Filter invalid requests
+        client.sendall(sendNotFound)
+    else: # Process request
+        if IncomingData[0] == "GET":
+            GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo)
+        elif IncomingData[0] == "HEAD":
+            if isPicture or isAudio:
+                MimeType, _ = utils.get_MimeType(Payload)
+
+                if not MimeType:
+                    if isPicture:
+                        client.sendall(sendHeadPicture)
+                    elif isAudio:
+                        client.sendall(sendHeadAudio)
+                else:
+                    client.sendall(f'HTTP/1.1 200 OK\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nContent-Type: {MimeType}\r\nAccept-Ranges: none\r\n\r\n'.encode())
+            else: # Send a neutral mime type, otherwise not possible to change it after head request (multi content selection)
+                client.sendall(sendHeadVideo)
+        else:
+            client.sendall(sendOK)
+
+    client.close()
+    del IncomingData
 
 
 def serve_similar(client, Method, Request):
@@ -555,7 +594,7 @@ def LoadISO(MetaData, client, PlaybackPath=None): # Disc image handed to Kodi
         if client is None:
             return sendOK
 
-        client.send(sendOK)
+        client.sendall(sendOK)
     else:
         set_QueuedPlayingItem(MetaData)
         player.replace_playlist_listitem(ListItem, PlaybackPath or Path)
@@ -603,7 +642,7 @@ def send_redirect(client, MetaData, Data, AddCache=True):
         return
 
     try:
-        client.send(SendData)
+        client.sendall(SendData)
     except:
         set_DelayedContent(MetaData['ETag'], SendData, 0, 0)
 
@@ -641,20 +680,20 @@ def GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo):
                 Wait -= 1
 
             if utils.SystemShutdown:
-                client.send(sendNotFound)
+                client.sendall(sendNotFound)
                 return
 
             if send_delayed_content(client, Etag):
                 return
 
-            client.send(f"HTTP/1.1 307 Temporary Redirect\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nLocation: http://127.0.0.1:57342/delayed_content/{Etag}\r\nAccept-Ranges: none\r\nContent-Length: 0\r\n\r\n".encode())
+            client.sendall(f"HTTP/1.1 307 Temporary Redirect\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nLocation: http://127.0.0.1:57342/delayed_content/{Etag}\r\nAccept-Ranges: none\r\nContent-Length: 0\r\n\r\n".encode())
             return
 
     # Load parameters from url request
     MetaData = metadata.load_MetaData(Payload, isPicture, isAudio)
 
     if not MetaData: # Invalid request
-        client.send(sendNotFound)
+        client.sendall(sendNotFound)
         return
 
     if isVideo and Payload.endswith(f"/{metadata.SelectedIsoFilename}") and len(MetaData['MediaSources']) == 1:
@@ -691,11 +730,11 @@ def GetRequest(client, Payload, isDelayedContent, isPicture, isAudio, isVideo):
         if MetaData['ImageTag'] != "noimage":
             Params = artwork.image_params(MetaData['ImageProfile'], MetaData['ImageTag'])
             Params['api_key'] = utils.EmbyServers[MetaData['ServerId']].ServerData['AccessToken']
-            client.send(f"HTTP/1.1 307 Temporary Redirect\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nLocation: {utils.EmbyServers[MetaData['ServerId']].ServerData['ServerUrl']}/emby/Items/{MetaData['EmbyId']}/Images/{MetaData['ImageType']}/{MetaData['ImageIndex']}?{urlencode(Params)}\r\nAccept-Ranges: none\r\nContent-Length: 0\r\n\r\n".encode())
+            client.sendall(f"HTTP/1.1 307 Temporary Redirect\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nLocation: {utils.EmbyServers[MetaData['ServerId']].ServerData['ServerUrl']}/emby/Items/{MetaData['EmbyId']}/Images/{MetaData['ImageType']}/{MetaData['ImageIndex']}?{urlencode(Params)}\r\nAccept-Ranges: none\r\nContent-Length: 0\r\n\r\n".encode())
             return
 
         BinaryData = utils.noimagejpg
-        client.send(f"HTTP/1.1 200 OK\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nContent-Length: {len(BinaryData)}\r\nContent-Type: image/jpeg\r\nAccept-Ranges: none\r\n\r\n".encode() + BinaryData)
+        client.sendall(f"HTTP/1.1 200 OK\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nContent-Length: {len(BinaryData)}\r\nContent-Type: image/jpeg\r\nAccept-Ranges: none\r\n\r\n".encode() + BinaryData)
         return
 
     if MetaData['KodiType'] == 'audio':
@@ -909,14 +948,15 @@ def select_episode_version(MetaData, client, VersionContext):
 
 # Load external subtitles
 def SubTitlesAdd(MetaData):
-    if not MetaData['MediaSources'][MetaData['SelectionIndexMediaSource']][3]:
+    MediaSource = MetaData['MediaSources'][MetaData['SelectionIndexMediaSource']]
+
+    if not MediaSource[3]:
         return
 
     DefaultVideoSettings = xmls.load_defaultvideosettings()
     SubtitlesLanguageDefault = DefaultVideoSettings.get("SubtitlesLanguage", "").lower()
     SubtitlesLanguageCode = xbmc.convertLanguage(SubtitlesLanguageDefault, xbmc.ISO_639_2)
     SubtitlesLanguageName = xbmc.convertLanguage(SubtitlesLanguageDefault, xbmc.ENGLISH_NAME).lower() or SubtitlesLanguageDefault
-    CounterSubTitle = 0
     SubtitleEnable = DefaultVideoSettings.get('ShowSubtitles', False)
     SubtitleIndexSelect = -1
     SubtitleIndexFallback = -1
@@ -933,16 +973,19 @@ def SubTitlesAdd(MetaData):
             SubtitleEnable = bool(FileSettings[9])
             SubtitleIndexSelect = FileSettings[7]
 
-    for Subtitle in MetaData['MediaSources'][MetaData['SelectionIndexMediaSource']][3]:
+    for Subtitle in MediaSource[3]:
         if Subtitle['external']:
-            CounterSubTitle += 1
+            SubtitleLanguage = (Subtitle['language'] or "").strip()
 
-            if Subtitle['language']:
-                SubtileLanguage = Subtitle['language']
+            if SubtitleLanguage.lower() in ("", "undefined", "und"):
+                SubtitleLanguage = "und"
+                # The neutral flag preserves the Chinese title without declaring a language.
+                SubtitleFilename = "none.未知语言"
             else:
-                SubtileLanguage = "undefined"
+                SubtitleFilename = SubtitleLanguage
 
-            BinaryData = utils.EmbyServers[MetaData['ServerId']].API.get_Subtitle_Binary(MetaData['EmbyId'], MetaData['MediaSources'][MetaData['SelectionIndexMediaSource']][0]['Id'], Subtitle['Index'], Subtitle['Codec'])
+            BinaryData = utils.EmbyServers[MetaData['ServerId']].API.get_Subtitle_Binary(
+                MetaData['EmbyId'], MediaSource[0]['Id'], Subtitle['Index'], Subtitle['Codec'])
 
             if (MetaData['EmbyId'] != EmbyIdCurrentlyPlaying or
                     (MetaData.get('PreselectedEpisode') and
@@ -952,7 +995,12 @@ def SubTitlesAdd(MetaData):
 
             if BinaryData:
                 SubtitleCodec = Subtitle['Codec']
-                Path = f"{utils.FolderEmbyTemp}{utils.valid_Filename(f'{CounterSubTitle}.{SubtileLanguage}.{SubtitleCodec}')}"
+                SubtitleFolder = (
+                    f"{utils.FolderEmbyTemp}{utils.valid_Filename(MetaData['ServerId'])}/"
+                    f"{utils.valid_Filename(MediaSource[0]['Id'])}/"
+                    f"{utils.valid_Filename(str(Subtitle['Index']))}/")
+                utils.mkDir(SubtitleFolder)
+                Path = f"{SubtitleFolder}{utils.valid_Filename(f'{SubtitleFilename}.{SubtitleCodec}')}"
                 utils.writeFile(Path, BinaryData)
                 del BinaryData
 
@@ -968,7 +1016,7 @@ def SubTitlesAdd(MetaData):
                 SubtitleIndexAdded = playerops.AddSubtitle(Path)
 
                 if SubtitleIndexSelect == -1:
-                    SubtitleLanguageCode = xbmc.convertLanguage(SubtileLanguage, xbmc.ISO_639_2)
+                    SubtitleLanguageCode = xbmc.convertLanguage(SubtitleLanguage, xbmc.ISO_639_2)
 
                     if SubtitlesLanguageDefault == "forced_only":
                         if Subtitle.get('Forced', False):
@@ -1012,7 +1060,7 @@ def send_delayed_content(client, ETag):
         DelayedContentLock.release()
 
         if DC:
-            client.send(DC)
+            client.sendall(DC)
 
             with utils.SafeLock(DelayedContentLock):
                 if ETag in DelayedContent:
@@ -1027,7 +1075,7 @@ def send_delayed_content(client, ETag):
 
     DelayedContentLock.release()
     xbmc.log(f"EMBY.hooks.webservice: Delayed content not found {ETag}", xbmc.LOGERROR)
-    client.send(sendNotFound)
+    client.sendall(sendNotFound)
     return True
 
 def set_QueuedPlayingItem(MetaData):
@@ -1084,7 +1132,7 @@ def add_DelayedContent(MetaData, client):
                 DelayedContent[MetaData['ETag']] = [None, 0]
                 Added = False
 
-        client.send(f"HTTP/1.1 307 Temporary Redirect\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nLocation: http://127.0.0.1:57342/delayed_content/{MetaData['ETag']}\r\nContent-Length: 0\r\nAccept-Ranges: none\r\n\r\n".encode())
+        client.sendall(f"HTTP/1.1 307 Temporary Redirect\r\nServer: Emby-Next-Gen\r\nConnection: close\r\nLocation: http://127.0.0.1:57342/delayed_content/{MetaData['ETag']}\r\nContent-Length: 0\r\nAccept-Ranges: none\r\n\r\n".encode())
         client.close()
         utils.close_busyDialog()
         return Added
@@ -1106,7 +1154,7 @@ def set_DelayedContent(ETag, Data, Index, KodiId):
 
 def wait_for_Embyserver(client, ServerId, MetaData):
     if ServerId in utils.EmbyServersBan:
-        client.send(sendNotFound)
+        client.sendall(sendNotFound)
         return False
 
     with utils.SafeLock(utils.EmbyServerOnlineCondition):
@@ -1133,7 +1181,7 @@ def wait_for_Embyserver(client, ServerId, MetaData):
                 if CounterRetry > 0 and MetaData:
                     set_DelayedContent(MetaData['ETag'], sendNotFound, 0, 0)
                 else:
-                    client.send(sendNotFound)
+                    client.sendall(sendNotFound)
 
                 return False
 
@@ -1146,7 +1194,7 @@ def wait_for_Embyserver(client, ServerId, MetaData):
                     if MetaData:
                         set_DelayedContent(MetaData['ETag'], sendNotFound, 0, 0)
                     else:
-                        client.send(sendNotFound)
+                        client.sendall(sendNotFound)
 
                     return False
 
