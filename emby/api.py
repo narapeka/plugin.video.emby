@@ -713,9 +713,16 @@ class API:
         else:
             self.http.Queues["ASYNC"].put((("DELETE", f"Sessions/{session_id}/Users/{user_id}", {}, False),))
 
-    def session_playing(self, EmbySessionInfo, PlaylistKodi, PlaylistEmby, PlaylistPosition):
+    def session_playing(self, EmbySessionInfo, PlaylistKodi, PlaylistEmby, PlaylistPosition, *, ReportProgress=False):
         EmbySessionInfoLocal, PlaylistEmby = update_sessioninfo(EmbySessionInfo, "", PlaylistKodi, PlaylistEmby, PlaylistPosition)
-        self.http.Queues["ASYNC"].put((("POST", "Sessions/Playing", EmbySessionInfoLocal, True),))
+        Commands = (("POST", "Sessions/Playing", EmbySessionInfoLocal, True),)
+        if ReportProgress:
+            # Supply the runtime before Emby classifies playback on stop.
+            # Queue both together at stop priority so Stopped cannot overtake them.
+            Progress = EmbySessionInfoLocal.copy()
+            Progress['EventName'] = "TimeUpdate"
+            Commands += (("POST", "Sessions/Playing/Progress", Progress, True),)
+        self.http.Queues["ASYNC"].put(Commands)
         return PlaylistEmby
 
     def session_progress(self, EmbySessionInfo, EventName, PlaylistKodi, PlaylistEmby, PlaylistPosition):
