@@ -384,6 +384,7 @@ def setup():
         xmls.sources() # verify sources.xml
 
         if xmls.advanced_settings(): # verify advancedsettings.xml
+            utils.Dialog.ok(heading=utils.addon_name, message=utils.Translate(33921))
             return False
 
         return True

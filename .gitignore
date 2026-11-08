@@ -8,6 +8,7 @@ __pycache__/
 *.zip
 *.tar.gz
 dist/
+/tools/
 build/
 *.egg-info/
 

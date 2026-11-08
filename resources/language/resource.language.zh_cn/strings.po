@@ -883,3 +883,7 @@ msgstr "插件将恢复电影跨库续播归属记忆和共享进度过滤。确
 msgctxt "#33920"
 msgid "Confirm and exit"
 msgstr "确认并退出"
+
+msgctxt "#33921"
+msgid "Emby add-on setup is complete.\nRestart Kodi to connect to your server."
+msgstr "Emby 插件首次配置已完成。\n请重新启动 Kodi 以连接服务器。"

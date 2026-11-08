@@ -883,3 +883,7 @@ msgstr ""
 msgctxt "#33920"
 msgid "Confirm and exit"
 msgstr ""
+
+msgctxt "#33921"
+msgid "Emby add-on setup is complete.\nRestart Kodi to connect to your server."
+msgstr ""
