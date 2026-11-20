@@ -1,0 +1,48 @@
+name: Publish Gen Release
+
+on:
+  push:
+    tags:
+      - 'x[0-9]+.[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Gen version tag
+        required: true
+        type: string
+
+concurrency:
+  group: gen-release-${{ inputs.tag || github.ref_name }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the tagged version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^x[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected a Gen version tag such as x12.5.1.4."
+            exit 1
+          fi
+
+          manifest_version=$(gh api --method GET "repos/$GH_REPO/contents/addon.xml" \
+            -f ref="refs/tags/$RELEASE_TAG" --jq .content |
+            base64 --decode |
+            python3 -c 'from xml.etree.ElementTree import parse; print(parse("/dev/stdin").getroot().attrib["version"])')
+          if [[ "$manifest_version" != "$RELEASE_TAG" ]]; then
+            echo "Tag $RELEASE_TAG does not match addon.xml version $manifest_version."
+            exit 1
+          fi
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes
+          fi

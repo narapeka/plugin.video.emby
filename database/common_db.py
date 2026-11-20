@@ -4,8 +4,6 @@ class CommonDatabase:
     def __init__(self, cursor):
         self.cursor = cursor
 
-    def analyze(self):
-        self.cursor.execute("ANALYZE")
 
     # reset
     def delete_tables(self, DatabaseName):
@@ -60,31 +58,17 @@ class CommonDatabase:
 
         self.cursor.execute("DELETE FROM art WHERE media_id = ? AND media_type = ?", (KodiId, KodiType))
 
-    def delete_artwork_force(self, KodiId):
-        with utils.SafeLock(utils.ArtworkDeleteLock):
-            self.cursor.execute("SELECT DISTINCT url FROM art WHERE media_id = ?", (KodiId,))
-            utils.ArtworkDelete.update(row[0] for row in self.cursor)
-
-        self.cursor.execute("DELETE FROM art WHERE media_id = ?", (KodiId,))
-
-    def get_artwork_urls(self, media_type):
-        self.cursor.execute("SELECT url FROM art WHERE media_type = ?", (media_type,))
-        return self.cursor.fetchall()
-
-    def get_artwork_urls_all(self):
-        self.cursor.execute("SELECT url FROM art")
-        return self.cursor.fetchall()
 
     def add_artwork(self, KodiArtworks, KodiId, KodiType):
-        SQLData = ()
+        SQLData = []
 
         for ArtworkId, ImagePath in list(KodiArtworks.items()):
             if ArtworkId != "fanart":
                 if ImagePath:
-                    SQLData += ((KodiId, KodiType, ArtworkId, ImagePath),)
+                    SQLData.append((KodiId, KodiType, ArtworkId, ImagePath))
             else:
                 for ArtworkFanArtId, ImageFanArtPath in list(KodiArtworks['fanart'].items()):
-                    SQLData += ((KodiId, KodiType, ArtworkFanArtId, ImageFanArtPath),)
+                    SQLData.append((KodiId, KodiType, ArtworkFanArtId, ImageFanArtPath))
 
         if SQLData:
             self.cursor.executemany("INSERT INTO art(media_id, media_type, type, url) VALUES (?, ?, ?, ?)", SQLData)
@@ -103,21 +87,3 @@ class CommonDatabase:
             Artwork[f"{PrefixKey}{ArtworkData[0]}"] = ArtworkData[1]
 
         return Artwork
-
-def toggle_path(CurrentPath, NewPath):
-    if NewPath == "http://127.0.0.1:57342/":
-        if CurrentPath.startswith("/emby_addon_mode/"):
-            return f'{CurrentPath.replace("/emby_addon_mode/", "http://127.0.0.1:57342/")}|redirect-limit=1000&failonerror=false'
-
-        return CurrentPath.replace("dav://127.0.0.1:57342/", "http://127.0.0.1:57342/")
-
-    if NewPath == "/emby_addon_mode/":
-        if CurrentPath.startswith("http://127.0.0.1:57342/"):
-            return CurrentPath.replace("http://127.0.0.1:57342/", "/emby_addon_mode/").replace("|redirect-limit=1000&failonerror=false", "")
-
-        return CurrentPath.replace("dav://127.0.0.1:57342/", "/emby_addon_mode/").replace("|redirect-limit=1000&failonerror=false", "")
-    # if NewPath == "dav://127.0.0.1:57342/":
-    if CurrentPath.startswith("/emby_addon_mode/"):
-        return f'{CurrentPath.replace("/emby_addon_mode/", "dav://127.0.0.1:57342/")}|redirect-limit=1000&failonerror=false'
-
-    return CurrentPath.replace("http://127.0.0.1:57342/", "dav://127.0.0.1:57342/")

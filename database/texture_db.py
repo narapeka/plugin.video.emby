@@ -8,15 +8,13 @@ class TextureDatabase:
 
     def add_Index(self):
         try: # xbox issue
-            self.cursor.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_texture_imagehash'")
-            IndexTest = self.cursor.fetchone()
-
-            if not IndexTest:
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_texture_cachedurl on texture (cachedurl)")
-                self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_texture_imagehash on texture (imagehash)")
+            SchemaVersion = self.cursor.execute("PRAGMA schema_version").fetchone()[0]
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_texture_cachedurl on texture (cachedurl)")
+            self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_texture_imagehash on texture (imagehash)")
+            if self.cursor.execute("PRAGMA schema_version").fetchone()[0] != SchemaVersion:
                 self.cursor.execute("ANALYZE")
         except Exception as Error:
-            xbmc.log(f"EMBY.database.texture_db: Database add index error: {Error}", 3) # LOGERROR
+            xbmc.log(f"EMBY.database.texture_db: Database add index error: {Error}", xbmc.LOGERROR)
 
     def delete_Index(self):
         try: # xbox issue
@@ -24,26 +22,7 @@ class TextureDatabase:
             self.cursor.execute("DROP INDEX IF EXISTS idx_texture_imagehash")
             self.cursor.execute("ANALYZE")
         except Exception as Error:
-            xbmc.log(f"EMBY.database.texture_db: Database delete index error: {Error}", 3) # LOGERROR
-
-    def add_texture(self, url, cachedUrl, imagehash, size, width, height, KodiTime):
-        self.cursor.execute("SELECT id FROM texture WHERE url = ?", (url,))
-        Data = self.cursor.fetchone()
-
-        if Data:
-            idtexture = Data[0]
-        else:
-            self.cursor.execute("SELECT coalesce(max(id), 0) FROM texture")
-            idtexture = self.cursor.fetchone()[0] + 1
-            self.cursor.execute("INSERT INTO texture (url, cachedUrl, imagehash, lasthashcheck) VALUES (?, ?, ?, ?)", (url, cachedUrl, imagehash, KodiTime))
-
-        self.cursor.execute("SELECT idtexture FROM sizes WHERE idtexture = ?", (idtexture,))
-        Data = self.cursor.fetchone()
-
-        if Data:
-            self.cursor.execute("UPDATE sizes SET size = ?, width = ?, height = ?, usecount = ?, lastusetime = ? WHERE idtexture = ?", (size, width, height, "1", KodiTime, idtexture))
-        else:
-            self.cursor.execute("INSERT INTO sizes (idtexture, size, width, height, usecount, lastusetime) VALUES (?, ?, ?, ?, ?, ?)", (idtexture, size, width, height, "1", KodiTime))
+            xbmc.log(f"EMBY.database.texture_db: Database delete index error: {Error}", xbmc.LOGERROR)
 
     def delete_textures(self, Urls):
         Placeholders = ",".join("?" * len(Urls))
@@ -51,3 +30,8 @@ class TextureDatabase:
         CachedUrls = self.cursor.fetchall()
         self.cursor.execute(f"DELETE FROM texture WHERE url IN ({Placeholders})", Urls)
         return CachedUrls
+
+    def clear_cache(self):
+        self.cursor.execute("DELETE FROM sizes")
+        self.cursor.execute("DELETE FROM texture")
+        self.cursor.execute("DELETE FROM path")

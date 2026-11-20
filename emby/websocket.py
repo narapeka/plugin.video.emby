@@ -2,6 +2,7 @@ import base64
 import os
 import struct
 import threading
+import time
 import uuid
 import xbmc
 
@@ -37,12 +38,12 @@ class WebSocket:
 
     def send_locked(self, payload, opcode):
         if opcode not in (0x1, 0x2, 0x8, 0x9, 0xa):
-            xbmc.log(f"EMBY.emby.websocket: Invalid Websocket send opcode: {opcode}", 2) # LOGWARNING
+            xbmc.log(f"EMBY.emby.websocket: Invalid Websocket send opcode: {opcode}", xbmc.LOGWARNING)
             return 698
 
         if opcode == 0x1:
             if not isinstance(payload, str):
-                xbmc.log("EMBY.emby.websocket: Websocket text payload must be str", 2) # LOGWARNING
+                xbmc.log("EMBY.emby.websocket: Websocket text payload must be str", xbmc.LOGWARNING)
                 return 698
 
             payload = payload.encode("utf-8")
@@ -50,13 +51,13 @@ class WebSocket:
             try:
                 payload = bytes(payload)
             except Exception:
-                xbmc.log("EMBY.emby.websocket: Invalid Websocket payload type", 2) # LOGWARNING
+                xbmc.log("EMBY.emby.websocket: Invalid Websocket payload type", xbmc.LOGWARNING)
                 return 698
 
         length = len(payload)
 
         if opcode >= 0x8 and length > 125:
-            xbmc.log("EMBY.emby.websocket: Websocket control frame payload > 125 bytes", 2) # LOGWARNING
+            xbmc.log("EMBY.emby.websocket: Websocket control frame payload > 125 bytes", xbmc.LOGWARNING)
             return 698
 
         frame_header = struct.pack("B", (1 << 7 | 0 << 6 | 0 << 5 | 0 << 4 | opcode))
@@ -84,7 +85,6 @@ class WebSocket:
             StatusCodeSocket = self.send_locked(payload, opcode)
 
         if StatusCodeSocket:
-            xbmc.log(f"EMBY.emby.websocket: Websocket send interupted {StatusCodeSocket}", 1) # LOGINFO
             return False
 
         return True
@@ -100,25 +100,20 @@ class WebSocket:
             if SendWebsocketClose:
                 try:
                     self.Common.Connection["WEBSOCKET"]["Socket"].settimeout(1) # set timeout
-                    StatusCodeSocket = self.send_locked(b"", 0x8)
-
-                    if StatusCodeSocket:
-                        xbmc.log(f"EMBY.emby.websocket: Socket WEBSOCKET send close error 1: {StatusCodeSocket}", 2) # LOGWARNING
-                except Exception as error:
-                    xbmc.log(f"EMBY.emby.websocket: Socket WEBSOCKET send close error 1: {error}", 2) # LOGWARNING
+                    self.send_locked(b"", 0x8)
+                except Exception:
+                    pass
 
             try:
                 self.Common.Connection["WEBSOCKET"]["Socket"].close()
-            except Exception as error:
-                xbmc.log(f"EMBY.emby.websocket: Socket WEBSOCKET close error: {error}", 2) # LOGWARNING
+            except Exception:
+                pass
 
             try:
                 if DeleteConnection:
                     del self.Common.Connection["WEBSOCKET"]
-            except Exception as error:
-                xbmc.log(f"EMBY.emby.websocket: Socket WEBSOCKET reset error: {error}", 2) # LOGWARNING
-
-        if utils.DebugLog: xbmc.log("EMBY.emby.websocket (DEBUG): Socket WEBSOCKET closed", 1) # LOGDEBUG
+            except Exception:
+                pass
 
     def disable_thread(self):
         self.Running = False
@@ -128,14 +123,11 @@ class WebSocket:
             self.Common.HTTPThreadsRunningCondition.notify_all()
 
     def listen(self):
-        if utils.DebugLog: xbmc.log(f"EMBY.emby.websocket (DEBUG): THREAD: --->[ Websocket {self.Common.HTTP.ServerData['ServerId']} ]", 1) # LOGDEBUG
 
         while self.Running and self.ThreadRunning and self.Common.HTTP.Running:
-            if utils.DebugLog: xbmc.log("EMBY.emby.websocket: Websocket connecting", 1) # LOGINFO
 
             if self.Common.socket_open(self.Common.HTTP.ServerData['ServerUrl'], "WEBSOCKET", False):
                 if utils.sleep(1):
-                    if utils.DebugLog: xbmc.log(f"EMBY.emby.websocket: THREAD: ---<[ Websocket {self.Common.HTTP.ServerData['ServerId']} shutdown 1 ]", 1) # LOGDEBUG
                     self.disable_thread()
                     return
 
@@ -146,16 +138,14 @@ class WebSocket:
 
             with utils.SafeLock(self.Common.HTTP.Connecting):
                 if not self.ThreadRunning or not self.Common.HTTP.Running or "WEBSOCKET" not in self.Common.Connection:
-                    if utils.DebugLog: xbmc.log(f"EMBY.emby.websocket: THREAD: ---<[ Websocket {self.Common.HTTP.ServerData['ServerId']} shutdown 2 ]", 1) # LOGDEBUG
                     self.disable_thread()
                     return
 
                 self.Common.Connection["WEBSOCKET"]["RequestHeader"].update({"Upgrade": "websocket", "Connection": "Upgrade", "Sec-WebSocket-Key": EncodingKey, "Sec-WebSocket-Version": "13"})
 
-            StatusCode, _, Payload = self.Common.HTTP.socket_request("GET", f"embywebsocket?api_key={self.Common.HTTP.ServerData['AccessToken']}&deviceId={self.Common.HTTP.ServerData['DeviceId']}", {}, True, 12, 30, "WEBSOCKET", "", None, 0, self.Common.HTTP.ServerData['ServerUrl'], False)
+            StatusCode, _, Payload = self.Common.HTTP.socket_request("GET", f"embywebsocket?api_key={self.Common.HTTP.ServerData['AccessToken']}&deviceId={self.Common.HTTP.ServerData['DeviceId']}", {}, True, 12, 30, "WEBSOCKET", self.Common.HTTP.ServerData['ServerUrl'], False)
 
             if StatusCode == 601: # quit
-                if utils.DebugLog: xbmc.log(f"EMBY.emby.websocket: THREAD: ---<[ Websocket {self.Common.HTTP.ServerData['ServerId']} quit ]", 1) # LOGDEBUG
                 self.disable_thread()
                 return
 
@@ -163,7 +153,6 @@ class WebSocket:
                 self.close(False)
 
                 if utils.sleep(1):
-                    if utils.DebugLog: xbmc.log(f"EMBY.emby.websocket: THREAD: ---<[ Websocket {self.Common.HTTP.ServerData['ServerId']} shutdown 2 ]", 1) # LOGDEBUG
                     self.disable_thread()
                     return
 
@@ -178,25 +167,15 @@ class WebSocket:
 
             self.Common.Connection["WEBSOCKET"]["Socket"].settimeout(3)
             self.Buffer = Payload
+            LastReceived = LastPing = time.monotonic()
             ConnectionClosed = False
             ReconnectConnection = False
             WebsocketFragmentBuffer = b''
 
             while self.Running and self.ThreadRunning and self.Common.HTTP.Running:
                 if not self.Common.HTTP.Running:
-                    xbmc.log("EMBY.emby.websocket: Websocket receive stopped", 1) # LOGINFO
                     ConnectionClosed = True
                     break
-
-                StatusCodeSocket, PayloadRecv = self.Common.socket_io("", "WEBSOCKET", 6)
-
-                if StatusCodeSocket:
-                    xbmc.log(f"EMBY.emby.websocket: Websocket receive interupted {StatusCodeSocket}", 1) # LOGINFO
-                    self.close(False)
-                    ReconnectConnection = True
-                    break
-
-                self.Buffer += PayloadRecv
 
                 while True:
                     if len(self.Buffer) < 2:
@@ -224,7 +203,6 @@ class WebSocket:
                     FrameLengthEndPos = Curser + FrameLength
 
                     if len(self.Buffer) < FrameLengthEndPos:
-                        if utils.DebugLog: xbmc.log("EMBY.emby.websocket (DEBUG): Websocket incomplete frame", 1) # LOGDEBUG
                         break
 
                     payload = self.Buffer[Curser:FrameLengthEndPos]
@@ -250,7 +228,6 @@ class WebSocket:
                             self.Buffer = b""
                             break
 
-                        if utils.DebugLog: xbmc.log("EMBY.emby.websocket (DEBUG): Websocket connection closed", 1) # LOGDEBUG
                         self.Buffer = self.Buffer[Curser:]
                         ConnectionClosed = True
                         break
@@ -259,8 +236,6 @@ class WebSocket:
                             ReconnectConnection = True
                             self.Buffer = b""
                             break
-                    elif opcode == 0xa: # Pong
-                        if utils.DebugLog: xbmc.log("EMBY.emby.websocket (DEBUG): Websocket Pong received", 1) # LOGDEBUG
 
                     self.Buffer = self.Buffer[Curser:]
 
@@ -275,19 +250,40 @@ class WebSocket:
                     self.close(False)
                     break
 
-            if ReconnectConnection:
-                continue
+                # Keep WS heartbeats independent of blocking HTTP API requests.
+                Now = time.monotonic()
+                if Now - LastPing >= 3:
+                    if not self.send(b"", 0x9):
+                        self.close(False)
+                        ReconnectConnection = True
+                        break
 
-            if ConnectionClosed:
-                break
+                    LastPing = Now
+
+                StatusCodeSocket, PayloadRecv = self.Common.socket_io("", "WEBSOCKET", 1)
+                if StatusCodeSocket == 603 and time.monotonic() - LastReceived < 6:
+                    continue
+
+                if StatusCodeSocket:
+                    xbmc.log(f"EMBY.emby.websocket: Receive interrupted with status {StatusCodeSocket}", xbmc.LOGDEBUG)
+                    self.close(False)
+                    ReconnectConnection = True
+                    break
+
+                self.Buffer += PayloadRecv
+                LastReceived = time.monotonic()
+
+            if ConnectionClosed or ReconnectConnection:
+                if utils.sleep(1):
+                    break
+
+                continue
 
         self.disable_thread()
         self.Running = False
         self.ThreadRunning = False
         with utils.SafeLock(self.Common.HTTPThreadsRunningCondition):
             self.Common.HTTPThreadsRunningCondition.notify_all()
-
-        if utils.DebugLog: xbmc.log(f"EMBY.emby.websocket (DEBUG): THREAD: ---<[ Websocket {self.Common.HTTP.ServerData['ServerId']} ]", 1) # LOGDEBUG
 
 
 def maskData(mask_key, data):
